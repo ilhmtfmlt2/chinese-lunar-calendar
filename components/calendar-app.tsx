@@ -12,12 +12,16 @@ import {
   type Countdown,
   type CountdownSettings,
   type CountdownUnit,
+  DEFAULT_CATEGORIES,
   DEFAULT_SETTINGS,
   formatCountdown,
-  needsSecondTick,
+  needsSecondTickForAny,
+  NO_REPEAT,
+  type Repeat,
   type ResolvedCountdown,
   resolveCountdown,
-  UNIT_OPTIONS,
+  resolveSettings,
+  sortResolved,
 } from '@/lib/countdown'
 import { dateKey, getWeekOfYear, isSameDay } from '@/lib/lunar'
 import {
@@ -28,11 +32,61 @@ import {
 } from '@/lib/preferences'
 import { cn } from '@/lib/utils'
 
+const YEARLY: Repeat = { freq: 'year', interval: 1 }
+
 const INITIAL_COUNTDOWNS: Countdown[] = [
-  { id: 'c1', title: '生日', calendar: 'lunar', year: 2026, month: 11, day: 7, repeat: true },
-  { id: 'c2', title: '春节', calendar: 'lunar', year: 2027, month: 1, day: 1, repeat: true },
-  { id: 'c3', title: '国庆假期', calendar: 'solar', year: 2026, month: 10, day: 1, repeat: true },
-  { id: 'c4', title: '毕业典礼', calendar: 'solar', year: 2027, month: 6, day: 28, repeat: false },
+  {
+    id: 'c1',
+    title: '生日',
+    calendar: 'lunar',
+    year: 2026,
+    month: 11,
+    day: 7,
+    repeat: YEARLY,
+    category: '纪念日',
+    pinned: true,
+  },
+  {
+    id: 'c2',
+    title: '春节',
+    calendar: 'lunar',
+    year: 2027,
+    month: 1,
+    day: 1,
+    repeat: YEARLY,
+    category: '节日',
+  },
+  {
+    id: 'c3',
+    title: '国庆假期',
+    calendar: 'solar',
+    year: 2026,
+    month: 10,
+    day: 1,
+    repeat: YEARLY,
+    category: '节日',
+  },
+  {
+    id: 'c4',
+    title: '周会',
+    calendar: 'solar',
+    year: 2026,
+    month: 8,
+    day: 17,
+    time: '09:30',
+    repeat: { freq: 'week', interval: 1, weekdays: [1] },
+    category: '工作',
+  },
+  {
+    id: 'c5',
+    title: '毕业典礼',
+    calendar: 'solar',
+    year: 2027,
+    month: 6,
+    day: 28,
+    repeat: NO_REPEAT,
+    category: '生活',
+  },
 ]
 
 export function CalendarApp() {
@@ -52,6 +106,7 @@ export function CalendarApp() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [events, setEvents] = useState<Record<string, string[]>>(() => ({}))
   const [countdowns, setCountdowns] = useState<Countdown[]>(INITIAL_COUNTDOWNS)
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
   const [activeId, setActiveId] = useState(INITIAL_COUNTDOWNS[0]?.id)
   const [screen, setScreen] = useState<ScreenView | null>(null)
   const [detailId, setDetailId] = useState<string>()
@@ -74,6 +129,7 @@ export function CalendarApp() {
     setPreferences((prev) => ({ ...prev, [key]: value }))
   }
 
+  /** 设置页里的默认单位 */
   function changeUnit(unit: CountdownUnit) {
     setSettings((prev) => ({ ...prev, unit }))
   }
@@ -82,12 +138,51 @@ export function CalendarApp() {
     setSettings((prev) => ({ ...prev, precise: !prev.precise }))
   }
 
-  // 秒级单位每秒走一次，其余每分钟走一次（用于跨零点换日）
+  /** 设置页里的默认起止口径 */
+  function toggleDefaultInclusive() {
+    setSettings((prev) => ({ ...prev, inclusive: !prev.inclusive }))
+  }
+
+  /** 列表排序方向 */
+  function toggleSortOrder() {
+    setSettings((prev) => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))
+  }
+
+  /** 置顶 / 取消置顶 */
+  function togglePin(id: string) {
+    setCountdowns((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item)),
+    )
+  }
+
+  function createCategory(name: string) {
+    setCategories((prev) => (prev.includes(name) ? prev : [...prev, name]))
+  }
+
+  /** 摘要区改的是当前目标这一条的单位 */
+  function changeItemUnit(unit: CountdownUnit) {
+    if (!activeId) return
+    setCountdowns((prev) => prev.map((item) => (item.id === activeId ? { ...item, unit } : item)))
+  }
+
+  /** 摘要区改的是当前目标这一条的起止口径 */
+  function toggleItemInclusive() {
+    if (!activeId) return
+    setCountdowns((prev) =>
+      prev.map((item) =>
+        item.id === activeId
+          ? { ...item, inclusive: !(item.inclusive ?? settings.inclusive) }
+          : item,
+      ),
+    )
+  }
+
+  // 任一条目用到秒级单位就每秒走一次，其余每 30 秒走一次（用于跨零点换日）
   useEffect(() => {
-    const step = needsSecondTick(settings) ? 1000 : 30_000
+    const step = needsSecondTickForAny(countdowns, settings) ? 1000 : 30_000
     const id = setInterval(() => setNow(new Date()), step)
     return () => clearInterval(id)
-  }, [settings])
+  }, [countdowns, settings])
 
   const cells = useMemo(
     () => buildMonthCells(cursor.getFullYear(), cursor.getMonth(), preferences.weekStart),
@@ -102,16 +197,29 @@ export function CalendarApp() {
     return map
   }, [events])
 
+  // 推算目标要带上真实时刻（否则「每天 07:00」过了点也不会顺延），
+  // 但按分钟取整，避免秒级刷新时反复重算整张列表
+  const minuteKey = `${todayKey} ${now.getHours()}:${now.getMinutes()}`
+  const clock = useMemo(() => {
+    const [date, time] = minuteKey.split(' ')
+    const [y, m, d] = date.split('-').map(Number)
+    const [h, min] = time.split(':').map(Number)
+    return new Date(y, m - 1, d, h, min)
+  }, [minuteKey])
+
   const resolved = useMemo(
-    () => countdowns.map((item) => resolveCountdown(item, today)),
-    [countdowns, today],
+    () => countdowns.map((item) => resolveCountdown(item, clock)),
+    [countdowns, clock],
   )
-  const active = resolved.find((r) => r.item.id === activeId) ?? resolved[0]
+  // 未指定目标时，首页优先显示置顶条目（sortResolved 已把置顶排在最前）
+  const active =
+    resolved.find((r) => r.item.id === activeId) ?? sortResolved(resolved, settings.sortOrder)[0]
 
   // 服务端渲染阶段先按「天」显示，挂载后再切到真实单位，避免时刻类文本水合不一致
   const effectiveSettings = mounted ? settings : DEFAULT_SETTINGS
   const format = (item: ResolvedCountdown) => formatCountdown(item, effectiveSettings, now)
-  const unitLabel = UNIT_OPTIONS.find((o) => o.key === settings.unit)?.label ?? '天'
+  // 当前目标实际生效的单位与起止口径（条目自带的优先）
+  const activeSettings = active ? resolveSettings(active.item, settings) : settings
 
   /** 倒数日目标日 → 名称（同一天可有多个） */
   const countdownTitles = useMemo(() => {
@@ -138,7 +246,7 @@ export function CalendarApp() {
   function shiftMonth(delta: number) {
     setCursor((prev) => {
       const next = new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
-      // 超出农历历表范围时保持原位，避免出现「undefined月」
+      // 超出农历历表范围时保���原位，避免出现「undefined月」
       if (next.getFullYear() < MIN_YEAR || next.getFullYear() > MAX_YEAR) return prev
       return next
     })
@@ -322,11 +430,10 @@ export function CalendarApp() {
       <CountdownSummary
         active={active}
         display={active ? format(active) : undefined}
-        settings={settings}
-        unitLabel={unitLabel}
+        itemSettings={activeSettings}
         total={countdowns.length}
-        onChangeUnit={changeUnit}
-        onTogglePrecise={togglePrecise}
+        onChangeUnit={changeItemUnit}
+        onToggleInclusive={toggleItemInclusive}
         onOpenAll={() => setScreen('all')}
         onOpenSelect={() => setScreen('select')}
         onOpenAdd={() => setScreen('add')}
@@ -370,6 +477,8 @@ export function CalendarApp() {
         preferences={preferences}
         onChangeUnit={changeUnit}
         onTogglePrecise={togglePrecise}
+        onToggleInclusive={toggleDefaultInclusive}
+        onToggleSort={toggleSortOrder}
         onChangePreference={changePreference}
         backLabel={settingsView === 'about' && aboutFromSettings ? '设置' : '日历'}
         onOpenAbout={() => {
@@ -402,6 +511,11 @@ export function CalendarApp() {
         onAdd={addCountdown}
         onRemove={removeCountdown}
         onFocusDate={focusDate}
+        onTogglePin={togglePin}
+        onToggleSort={toggleSortOrder}
+        categories={categories}
+        onCreateCategory={createCategory}
+        settings={settings}
         format={format}
       />
     </main>
