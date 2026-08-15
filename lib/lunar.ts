@@ -264,7 +264,8 @@ export function getWeekOfYear(date: Date) {
     (new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() - start.getTime()) /
       86400000,
   )
-  return Math.floor((diff + start.getDay()) / 7)
+  // 1 月最初几天可能落在第 0 周，统一并入第 1 周
+  return Math.max(1, Math.floor((diff + start.getDay()) / 7))
 }
 
 export function isSameDay(a: Date, b: Date) {
@@ -282,7 +283,7 @@ export function dateKey(date: Date) {
   return `${date.getFullYear()}-${m}-${d}`
 }
 
-/** 自然日差值（target - from），忽略时分秒 */
+/** 自然日���值（target - from），忽略时分秒 */
 export function daysBetween(from: Date, target: Date) {
   const a = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime()
   const b = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime()
