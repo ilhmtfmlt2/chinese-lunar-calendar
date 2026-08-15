@@ -11,6 +11,7 @@ import type {
 import {
   describeRepeat,
   REPEAT_OPTIONS,
+  supportsInclusive,
   UNIT_OPTIONS,
   unitLabel,
   WEEKDAY_NAMES,
@@ -85,6 +86,7 @@ export function CountdownForm({
   const [weekdays, setWeekdays] = useState<number[]>([])
   const [category, setCategory] = useState(categories[0] ?? '生活')
   const [newCategory, setNewCategory] = useState('')
+  const [categoryMessage, setCategoryMessage] = useState('')
   const [pinned, setPinned] = useState(false)
   const [unit, setUnit] = useState<UnitChoice>('')
   const [inclusive, setInclusive] = useState(defaults.inclusive)
@@ -99,6 +101,8 @@ export function CountdownForm({
   }, [calendar, lYear, lMonth, safeLDay, solar])
 
   const repeatUnit = REPEAT_OPTIONS.find((o) => o.key === freq)?.unit ?? ''
+  const effectiveUnit = unit || defaults.unit
+  const canIncludeEndpoints = supportsInclusive(effectiveUnit)
 
   function toggleWeekday(day: number) {
     setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
@@ -149,10 +153,20 @@ export function CountdownForm({
 
   function addCategory() {
     const name = newCategory.trim()
-    if (!name) return
+    if (!name) {
+      setCategoryMessage('请输入分类名称')
+      return
+    }
+    if (categories.includes(name)) {
+      setCategory(name)
+      setNewCategory('')
+      setCategoryMessage('该分类已存在，已为你选中')
+      return
+    }
     onCreateCategory(name)
     setCategory(name)
     setNewCategory('')
+    setCategoryMessage(`已新建并选中“${name}”`)
   }
 
   function submit() {
@@ -168,7 +182,7 @@ export function CountdownForm({
       category,
       ...(pinned ? { pinned } : {}),
       ...(unit ? { unit } : {}),
-      ...(inclusive === defaults.inclusive ? {} : { inclusive }),
+      ...(canIncludeEndpoints && inclusive !== defaults.inclusive ? { inclusive } : {}),
     }
     if (calendar === 'lunar') {
       onSubmit({ title: name, calendar, year: lYear, month: lMonth, day: safeLDay, ...extra })
@@ -274,25 +288,31 @@ export function CountdownForm({
         </div>
       )}
 
-      {/* 时刻：留空按整天算 */}
-      <label className={ROW}>
-        <span className={LABEL}>时刻</span>
-        <input
-          type="time"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-          className={cn(FIELD, 'tabular-nums')}
-        />
-        {time ? (
-          <button
-            type="button"
-            onClick={() => setTime('')}
-            className="text-cal-faint shrink-0 text-[0.8125rem] font-light"
-          >
-            清除
-          </button>
-        ) : null}
-      </label>
+      {/* 时刻：留空为全天日期，并非 00:00 闹铃 */}
+      <div className={ROW}>
+        <span className={LABEL}>时间口径</span>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          {!time ? (
+            <span className="text-muted-foreground text-[0.9375rem] font-light">全天</span>
+          ) : null}
+          <input
+            aria-label="指定时刻"
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="w-[7.25rem] bg-transparent text-right text-[1.0625rem] font-light tabular-nums text-foreground outline-none"
+          />
+          {time ? (
+            <button
+              type="button"
+              onClick={() => setTime('')}
+              className="text-cal-faint shrink-0 text-[0.8125rem] font-light"
+            >
+              改为全天
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {/* 重复频率 */}
       <label className={ROW}>
@@ -359,42 +379,64 @@ export function CountdownForm({
         </div>
       ) : null}
 
-      {/* 分类：可选已有，也可新增 */}
-      <label className={ROW}>
-        <span className={LABEL}>分类</span>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className={FIELD}
-        >
-          {categories.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className={ROW}>
-        <span className={LABEL}>新增分类</span>
-        <input
-          value={newCategory}
-          onChange={(e) => setNewCategory(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return
-            if (e.key === 'Enter') addCategory()
-          }}
-          placeholder="如：健身"
-          className={cn(FIELD, 'placeholder:text-cal-faint')}
-        />
-        <button
-          type="button"
-          onClick={addCategory}
-          disabled={!newCategory.trim()}
-          className="border-cal-line text-muted-foreground shrink-0 rounded-full border px-2.5 py-1 text-[0.8125rem] font-light disabled:opacity-30"
-        >
-          添加
-        </button>
+      {/* 分类：直接显示已有分类，新建后自动选中 */}
+      <div className="border-cal-line flex flex-col gap-3 border-b py-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className={LABEL}>分类</span>
+          <span className="text-cal-faint text-[0.8125rem] font-light">当前：{category}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {categories.map((name) => {
+            const active = category === name
+            return (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={active}
+                onClick={() => {
+                  setCategory(name)
+                  setCategoryMessage('')
+                }}
+                className={cn(
+                  'border-cal-line rounded-full border px-3 py-1 text-[0.8125rem] font-light transition-colors',
+                  active
+                    ? 'border-transparent bg-foreground text-background'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {name}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            aria-label="新分类名称"
+            value={newCategory}
+            onChange={(e) => {
+              setNewCategory(e.target.value)
+              setCategoryMessage('')
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
+              if (e.key === 'Enter') addCategory()
+            }}
+            placeholder="输入新分类，如：健身"
+            className="border-cal-line min-w-0 flex-1 rounded-full border bg-transparent px-3 py-2 text-[0.9375rem] font-light text-foreground outline-none placeholder:text-cal-faint"
+          />
+          <button
+            type="button"
+            onClick={addCategory}
+            className="border-cal-line text-muted-foreground shrink-0 rounded-full border px-3 py-2 text-[0.8125rem] font-light"
+          >
+            新建并选中
+          </button>
+        </div>
+        {categoryMessage ? (
+          <p role="status" className="text-cal-faint text-[0.8125rem] font-light">
+            {categoryMessage}
+          </p>
+        ) : null}
       </div>
 
       <button
@@ -429,20 +471,29 @@ export function CountdownForm({
         </select>
       </label>
 
-      <button
-        type="button"
-        onClick={() => setInclusive((v) => !v)}
-        aria-pressed={inclusive}
-        className="border-cal-line flex items-center justify-between gap-3 border-b py-4 text-left"
-      >
-        <span className="flex flex-col gap-0.5">
-          <span className="text-[1.0625rem] font-light text-foreground">包含起止日期</span>
-          <span className="text-cal-faint text-[0.8125rem] font-light">
-            开启后首尾两天都算进天数
+      {canIncludeEndpoints ? (
+        <button
+          type="button"
+          onClick={() => setInclusive((v) => !v)}
+          aria-pressed={inclusive}
+          className="border-cal-line flex items-center justify-between gap-3 border-b py-4 text-left"
+        >
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[1.0625rem] font-light text-foreground">包含起止日期</span>
+            <span className="text-cal-faint text-[0.8125rem] font-light">
+              仅用于天、周、月等自然日口径，开启后多计一天
+            </span>
           </span>
-        </span>
-        <Switch on={inclusive} />
-      </button>
+          <Switch on={inclusive} />
+        </button>
+      ) : (
+        <div className="border-cal-line flex flex-col gap-0.5 border-b py-4">
+          <span className="text-[1.0625rem] font-light text-foreground">按精确时刻计算</span>
+          <span className="text-cal-faint text-[0.8125rem] font-light">
+            小时、分钟、秒不使用“包含起止日期”
+          </span>
+        </div>
+      )}
 
       <p className="text-muted-foreground py-4 text-[0.8125rem] leading-relaxed font-light tabular-nums">
         换算：{preview}
