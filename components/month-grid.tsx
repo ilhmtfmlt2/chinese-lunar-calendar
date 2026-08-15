@@ -1,6 +1,7 @@
 'use client'
 
 import { dateKey, getLunar, isSameDay } from '@/lib/lunar'
+import type { Preferences, WeekStart } from '@/lib/preferences'
 import { cn } from '@/lib/utils'
 
 export type DayCell = {
@@ -8,10 +9,11 @@ export type DayCell = {
   inMonth: boolean
 }
 
-/** 生成 6*7 = 42 个格子（周日起始） */
-export function buildMonthCells(year: number, month: number): DayCell[] {
+/** 生成 6*7 = 42 个格子，首列由 weekStart 决定（0 周日 / 1 周一） */
+export function buildMonthCells(year: number, month: number, weekStart: WeekStart = 0): DayCell[] {
   const first = new Date(year, month, 1)
-  const start = new Date(year, month, 1 - first.getDay())
+  const lead = (first.getDay() - weekStart + 7) % 7
+  const start = new Date(year, month, 1 - lead)
   const cells: DayCell[] = []
   for (let i = 0; i < 42; i++) {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
@@ -30,6 +32,7 @@ type Props = {
   countdownTitles: Map<string, string[]>
   /** 详情展开时整个网格淡出 */
   dimmed: boolean
+  preferences: Preferences
   onSelect: (date: Date) => void
   /** 淡出状态下点击网格任意位置收起详情 */
   onDismiss: () => void
@@ -42,9 +45,12 @@ export function MonthGrid({
   eventCounts,
   countdownTitles,
   dimmed,
+  preferences,
   onSelect,
   onDismiss,
 }: Props) {
+  const { showLunar, showFestival, showOutsideDays } = preferences
+
   return (
     <div className="relative grid grid-cols-7">
       {/* 淡出时整片网格变成收起热区，避免误点到其它日期 */}
@@ -57,6 +63,11 @@ export function MonthGrid({
         />
       )}
       {cells.map(({ date, inMonth }) => {
+        // 关闭「非本月日期」后留空占位，保持网格对齐
+        if (!inMonth && !showOutsideDays) {
+          return <div key={date.toISOString()} className="h-[var(--cal-cell-h)]" aria-hidden />
+        }
+
         const lunar = getLunar(date)
         const key = dateKey(date)
         const isToday = isSameDay(date, today)
@@ -65,6 +76,13 @@ export function MonthGrid({
         const marks = countdownTitles.get(key) ?? []
         const isTarget = marks.length > 0
         const weekend = date.getDay() === 0 || date.getDay() === 6
+        // 关闭节气节日后回退为纯农历日
+        const subLabel = showFestival
+          ? lunar.label
+          : lunar.day === 1
+            ? lunar.monthName
+            : lunar.dayName
+        const highlight = showFestival && lunar.highlight
 
         return (
           <button
@@ -82,7 +100,7 @@ export function MonthGrid({
               .join(' ')}
             aria-current={isToday ? 'date' : undefined}
             className={cn(
-              'relative flex h-[3.75rem] flex-col items-center justify-center outline-none transition-opacity duration-300 ease-out',
+              'relative flex h-[var(--cal-cell-h)] flex-col items-center justify-center outline-none transition-opacity duration-300 ease-out',
               dimmed && !isSelected && 'opacity-[0.16]',
               dimmed && isSelected && 'opacity-45',
             )}
@@ -90,13 +108,13 @@ export function MonthGrid({
             {/* 今天圆形底（选中态不再加浅红底，避免抢视觉） */}
             <span
               className={cn(
-                'absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ease-out',
+                'absolute top-1/2 left-1/2 size-[var(--cal-today-size)] -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ease-out',
                 isToday ? 'bg-cal-accent scale-100' : 'scale-50 bg-transparent',
               )}
             />
             <span
               className={cn(
-                'relative text-[1.375rem] leading-tight font-light tabular-nums transition-colors',
+                'relative text-[length:var(--cal-date-fs)] leading-none font-light tabular-nums transition-colors',
                 isToday
                   ? 'text-background font-normal'
                   : !inMonth
@@ -108,23 +126,25 @@ export function MonthGrid({
             >
               {date.getDate()}
             </span>
-            <span
-              className={cn(
-                'relative mt-0.5 text-[0.6875rem] leading-none',
-                isToday
-                  ? 'text-background/90'
-                  : !inMonth
-                    ? 'text-cal-faint'
-                    : lunar.highlight
-                      ? 'text-cal-festival'
-                      : 'text-muted-foreground',
-              )}
-            >
-              {lunar.label}
-            </span>
+            {showLunar && (
+              <span
+                className={cn(
+                  'relative mt-0.5 text-[length:var(--cal-lunar-fs)] leading-none',
+                  isToday
+                    ? 'text-background/90'
+                    : !inMonth
+                      ? 'text-cal-faint'
+                      : highlight
+                        ? 'text-cal-festival'
+                        : 'text-muted-foreground',
+                )}
+              >
+                {subLabel}
+              </span>
+            )}
             {/* 标记行：绝对定位在农历文字下方居中，不影响日期与农历的居中对齐 */}
             {(isTarget || eventCount > 0) && (
-              <span className="absolute bottom-1.5 flex items-center gap-[0.1875rem]">
+              <span className="absolute bottom-1 flex items-center gap-[0.1875rem]">
                 {/* 倒数日：一个小圆点；同日多个也只显示一个，点击当天展开详情 */}
                 {isTarget && (
                   <span
