@@ -20,9 +20,13 @@ import {
   UNIT_OPTIONS,
 } from '@/lib/countdown'
 import { dateKey, getWeekOfYear, isSameDay } from '@/lib/lunar'
+import {
+  DEFAULT_PREFERENCES,
+  isWeekendColumn,
+  type Preferences,
+  weekLabels,
+} from '@/lib/preferences'
 import { cn } from '@/lib/utils'
-
-const WEEK_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 const INITIAL_COUNTDOWNS: Countdown[] = [
   { id: 'c1', title: '生日', calendar: 'lunar', year: 2026, month: 11, day: 7, repeat: true },
@@ -36,6 +40,7 @@ export function CalendarApp() {
   const [now, setNow] = useState(() => new Date())
   const [mounted, setMounted] = useState(false)
   const [settings, setSettings] = useState<CountdownSettings>(DEFAULT_SETTINGS)
+  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES)
   const todayKey = dateKey(now)
   const today = useMemo(() => {
     const [y, m, d] = todayKey.split('-').map(Number)
@@ -58,6 +63,25 @@ export function CalendarApp() {
 
   useEffect(() => setMounted(true), [])
 
+  // 外观：system 时移除类名交给 prefers-color-scheme，否则强制 light / dark
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('light', 'dark')
+    if (preferences.theme !== 'system') root.classList.add(preferences.theme)
+  }, [preferences.theme])
+
+  function changePreference<K extends keyof Preferences>(key: K, value: Preferences[K]) {
+    setPreferences((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function changeUnit(unit: CountdownUnit) {
+    setSettings((prev) => ({ ...prev, unit }))
+  }
+
+  function togglePrecise() {
+    setSettings((prev) => ({ ...prev, precise: !prev.precise }))
+  }
+
   // 秒级单位每秒走一次，其余每分钟走一次（用于跨零点换日）
   useEffect(() => {
     const step = needsSecondTick(settings) ? 1000 : 30_000
@@ -66,9 +90,10 @@ export function CalendarApp() {
   }, [settings])
 
   const cells = useMemo(
-    () => buildMonthCells(cursor.getFullYear(), cursor.getMonth()),
-    [cursor],
+    () => buildMonthCells(cursor.getFullYear(), cursor.getMonth(), preferences.weekStart),
+    [cursor, preferences.weekStart],
   )
+  const labels = useMemo(() => weekLabels(preferences.weekStart), [preferences.weekStart])
   const eventCounts = useMemo(() => {
     const map = new Map<string, number>()
     for (const [key, list] of Object.entries(events)) {
@@ -182,9 +207,12 @@ export function CalendarApp() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background pt-3">
+    <main
+      data-density={preferences.density}
+      className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background pt-2"
+    >
       {/* 顶部：年/月·周 与月份切换 */}
-      <header className="flex items-center justify-between px-5 py-2">
+      <header className="flex items-center justify-between px-5 py-1">
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
@@ -198,10 +226,15 @@ export function CalendarApp() {
           onClick={() => setPickerOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={pickerOpen}
-          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[1.75rem] leading-none font-light tabular-nums text-foreground transition-colors active:bg-muted"
+          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[length:var(--cal-title-fs)] leading-none font-light tabular-nums text-foreground transition-colors active:bg-muted"
         >
           {cursor.getFullYear()} <span className="text-muted-foreground">/</span>{' '}
-          {cursor.getMonth() + 1} <span className="text-muted-foreground">·</span> {headerWeek}
+          {cursor.getMonth() + 1}
+          {preferences.showWeekNumber ? (
+            <>
+              <span className="text-muted-foreground">·</span> {headerWeek}
+            </>
+          ) : null}
           <ChevronDown className="text-muted-foreground size-4" strokeWidth={1.5} />
         </button>
         <button
@@ -215,13 +248,13 @@ export function CalendarApp() {
       </header>
 
       {/* 星期栏 */}
-      <div className="grid grid-cols-7 px-1 pb-1">
-        {WEEK_LABELS.map((label, i) => (
+      <div className="grid grid-cols-7 px-1 pb-0.5">
+        {labels.map((label, i) => (
           <div
             key={label}
             className={cn(
-              'py-1 text-center text-[0.9375rem]',
-              i === 0 || i === 6 ? 'text-cal-faint' : 'text-foreground',
+              'py-0.5 text-center text-[length:var(--cal-week-fs)]',
+              isWeekendColumn(i, preferences.weekStart) ? 'text-cal-faint' : 'text-foreground',
             )}
           >
             {label}
@@ -255,6 +288,7 @@ export function CalendarApp() {
           events={events[dateKey(selected)] ?? []}
           countdowns={selectedCountdowns}
           format={format}
+          showWeekNumber={preferences.showWeekNumber}
           onOpenCountdown={(id) => {
             setDetailId(id)
             setScreen('detail')
@@ -270,6 +304,7 @@ export function CalendarApp() {
           eventCounts={eventCounts}
           countdownTitles={countdownTitles}
           dimmed={detailOpen}
+          preferences={preferences}
           onSelect={handleSelect}
           onDismiss={() => setDetailOpen(false)}
         />
@@ -287,20 +322,22 @@ export function CalendarApp() {
       <CountdownSummary
         active={active}
         display={active ? format(active) : undefined}
+        settings={settings}
         unitLabel={unitLabel}
         total={countdowns.length}
+        onChangeUnit={changeUnit}
+        onTogglePrecise={togglePrecise}
         onOpenAll={() => setScreen('all')}
         onOpenSelect={() => setScreen('select')}
         onOpenAdd={() => setScreen('add')}
-        onOpenSettings={() => setSettingsView('settings')}
       />
 
       {/* 页脚：设置 与 关于 入口 */}
-      <footer className="flex items-center justify-center gap-6 px-5 py-5">
+      <footer className="border-cal-line flex items-center justify-center gap-6 border-t px-5 py-3">
         <button
           type="button"
           onClick={() => setSettingsView('settings')}
-          className="text-muted-foreground text-[0.8125rem] font-light transition-colors active:text-foreground"
+          className="text-muted-foreground text-[length:var(--cal-sub-fs)] font-light transition-colors active:text-foreground"
         >
           设置
         </button>
@@ -311,7 +348,7 @@ export function CalendarApp() {
             setAboutFromSettings(false)
             setSettingsView('about')
           }}
-          className="text-muted-foreground text-[0.8125rem] font-light transition-colors active:text-foreground"
+          className="text-muted-foreground text-[length:var(--cal-sub-fs)] font-light transition-colors active:text-foreground"
         >
           关于
         </button>
@@ -330,8 +367,10 @@ export function CalendarApp() {
       <SettingsScreen
         view={settingsView}
         settings={settings}
-        onChangeUnit={(unit: CountdownUnit) => setSettings((prev) => ({ ...prev, unit }))}
-        onTogglePrecise={() => setSettings((prev) => ({ ...prev, precise: !prev.precise }))}
+        preferences={preferences}
+        onChangeUnit={changeUnit}
+        onTogglePrecise={togglePrecise}
+        onChangePreference={changePreference}
         backLabel={settingsView === 'about' && aboutFromSettings ? '设置' : '日历'}
         onOpenAbout={() => {
           setAboutFromSettings(true)
