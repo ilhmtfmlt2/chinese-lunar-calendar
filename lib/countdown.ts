@@ -327,23 +327,29 @@ export function unitLabel(unit: CountdownUnit) {
   return UNIT_OPTIONS.find((option) => option.key === unit)?.label ?? '天'
 }
 
-/** 天 / 周 / 月按自然日计算，与当前时刻无关 */
+/** 天 / 周 / 月按自然日计算，与当前时刻无关，也只有这些单位支持「包含起止日期」 */
 export function isCalendarUnit(unit: CountdownUnit) {
   return unit === 'day' || unit === 'week' || unit === 'month'
 }
 
-/** 该单位是否需要逐秒刷新 */
-export function needsSecondTick(settings: CountdownSettings) {
+export function supportsInclusive(unit: CountdownUnit) {
+  return isCalendarUnit(unit)
+}
+
+/** 该单位是否需要逐秒刷新；小时只显示余分钟，不需要每秒重绘 */
+export function needsSecondTick(settings: CountdownSettings, hasExplicitTime = false) {
   return (
     settings.unit === 'compound' ||
     settings.unit === 'second' ||
-    (settings.precise && (settings.unit === 'minute' || settings.unit === 'hour'))
+    ((settings.precise || hasExplicitTime) && settings.unit === 'minute')
   )
 }
 
-/** 任一条目使用秒级单位时就得每秒刷新 */
+/** 任一条目使用会显示秒数的单位时才逐秒刷新 */
 export function needsSecondTickForAny(items: Countdown[], settings: CountdownSettings) {
-  return items.some((item) => needsSecondTick(resolveSettings(item, settings)))
+  return items.some((item) =>
+    needsSecondTick(resolveSettings(item, settings), Boolean(item.time)),
+  )
 }
 
 export type CountdownDisplay = {
@@ -377,8 +383,9 @@ export function formatCountdown(
 ): CountdownDisplay {
   const s = resolveSettings(item.item, settings)
   const calendarUnit = isCalendarUnit(s.unit)
-  // 天 / 周 / 月按自然日算；时分秒类单位才受「精确到当前时刻」影响；复合单位恒精确
-  const precise = s.unit === 'compound' || (!calendarUnit && s.precise)
+  // 天 / 周 / 月按自然日算；明确设置了时刻的条目必须精确计算，不能被全局开关降级成 00:00
+  const precise =
+    s.unit === 'compound' || (!calendarUnit && (s.precise || Boolean(item.item.time)))
   const fromTime = precise ? now.getTime() : startOfDay(now).getTime()
   const diff = item.target.getTime() - fromTime
   const abs = Math.abs(diff)
@@ -388,8 +395,8 @@ export function formatCountdown(
   const seconds = Math.floor(abs / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
-  // 包含起止日期：首尾两天都算，天数 +1
-  const bonus = s.inclusive ? 1 : 0
+  // 只对自然日单位应用起止口径；时间单位必须保持真实毫秒差
+  const bonus = calendarUnit && s.inclusive ? 1 : 0
   const days = calendarUnit ? Math.abs(item.days) + bonus : Math.floor(hours / 24)
 
   const prefix = passed ? '已过' : '还有'
