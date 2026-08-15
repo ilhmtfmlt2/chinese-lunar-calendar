@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { CalendarType, Countdown } from '@/lib/countdown'
+import type { CalendarType, Countdown, CountdownSettings, CountdownUnit } from '@/lib/countdown'
+import { UNIT_OPTIONS, unitLabel } from '@/lib/countdown'
 import {
   dateKey,
   getLunar,
@@ -13,17 +14,25 @@ import {
 import { cn } from '@/lib/utils'
 
 type Props = {
+  /** 全局默认，用于「跟随默认」选项的文案 */
+  defaults: CountdownSettings
   onSubmit: (item: Omit<Countdown, 'id'>) => void
   onCancel: () => void
 }
 
-export function CountdownForm({ onSubmit, onCancel }: Props) {
+/** 空字符串代表跟随全局默认 */
+type UnitChoice = CountdownUnit | ''
+
+export function CountdownForm({ defaults, onSubmit, onCancel }: Props) {
   const today = useMemo(() => new Date(), [])
   const todayLunar = useMemo(() => getLunar(today), [today])
 
   const [calendar, setCalendar] = useState<CalendarType>('solar')
   const [title, setTitle] = useState('')
   const [repeat, setRepeat] = useState(false)
+  // 新建时就能定这条倒数日的显示单位与起止口径
+  const [unit, setUnit] = useState<UnitChoice>('')
+  const [inclusive, setInclusive] = useState(defaults.inclusive)
   const [solar, setSolar] = useState(() => dateKey(today))
   const [lYear, setLYear] = useState(todayLunar.year)
   const [lMonth, setLMonth] = useState(todayLunar.month)
@@ -45,13 +54,19 @@ export function CountdownForm({ onSubmit, onCancel }: Props) {
   function submit() {
     const name = title.trim()
     if (!name) return
+    // 未选具体单位时不写入该字段，后续跟随设置里的默认值
+    const extra = {
+      repeat,
+      ...(unit ? { unit } : {}),
+      ...(inclusive === defaults.inclusive ? {} : { inclusive }),
+    }
     if (calendar === 'lunar') {
-      onSubmit({ title: name, calendar, year: lYear, month: lMonth, day: safeLDay, repeat })
+      onSubmit({ title: name, calendar, year: lYear, month: lMonth, day: safeLDay, ...extra })
       return
     }
     const [y, m, d] = solar.split('-').map(Number)
     if (!y || !m || !d) return
-    onSubmit({ title: name, calendar, year: y, month: m, day: d, repeat })
+    onSubmit({ title: name, calendar, year: y, month: m, day: d, ...extra })
   }
 
   return (
