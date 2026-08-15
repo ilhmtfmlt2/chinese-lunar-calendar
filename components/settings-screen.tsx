@@ -23,6 +23,9 @@ type Props = {
   backLabel: string
   onChangeUnit: (unit: CountdownUnit) => void
   onTogglePrecise: () => void
+  onToggleInclusive: () => void
+  /** 切换列表排序方向 */
+  onToggleSort: () => void
   onChangePreference: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void
   onOpenAbout: () => void
   onClose: () => void
@@ -99,6 +102,8 @@ export function SettingsScreen({
   backLabel,
   onChangeUnit,
   onTogglePrecise,
+  onToggleInclusive,
+  onToggleSort,
   onChangePreference,
   onOpenAbout,
   onClose,
@@ -237,6 +242,64 @@ export function SettingsScreen({
               </span>
               <Switch on={settings.precise || settings.unit === 'compound'} />
             </button>
+
+            <button
+              type="button"
+              onClick={onToggleInclusive}
+              aria-pressed={settings.inclusive}
+              className="border-cal-line flex w-full items-center gap-3 border-b py-[var(--cal-row-py)] text-left"
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-[length:var(--cal-body-fs)] font-light text-foreground">
+                  默认包含起止日期
+                </span>
+                <span className="text-cal-faint text-[length:var(--cal-sub-fs)] font-light">
+                  新建倒数日时的默认口径，单条可单独调整
+                </span>
+              </span>
+              <Switch on={settings.inclusive} />
+            </button>
+
+            <SectionTitle>倒数日列表排序</SectionTitle>
+            <ul className="border-cal-line border-t">
+              {(
+                [
+                  { key: 'asc', label: '正序', hint: '离现在最近的排在前面' },
+                  { key: 'desc', label: '倒序', hint: '离现在最远的排在前面' },
+                ] as const
+              ).map((option) => {
+                const active = option.key === settings.sortOrder
+                return (
+                  <li key={option.key} className="border-cal-line border-b">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!active) onToggleSort()
+                      }}
+                      aria-pressed={active}
+                      className="flex w-full items-center gap-3 py-[var(--cal-row-py)] text-left transition-colors active:bg-muted/60"
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-[length:var(--cal-body-fs)] font-light text-foreground">
+                          {option.label}
+                        </span>
+                        <span className="text-cal-faint truncate text-[length:var(--cal-sub-fs)] font-light">
+                          {option.hint}
+                        </span>
+                      </span>
+                      {active ? (
+                        <Check className="text-cal-accent size-5 shrink-0" strokeWidth={1.5} />
+                      ) : (
+                        <span className="size-5 shrink-0" />
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <p className="text-cal-faint py-3 text-[length:var(--cal-sub-fs)] font-light">
+              置顶的倒数日始终排在最前，不受排序方向影响。
+            </p>
 
             <button
               type="button"
