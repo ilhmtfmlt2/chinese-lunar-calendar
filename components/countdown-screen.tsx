@@ -3,7 +3,7 @@
 import { Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { CountdownForm } from '@/components/countdown-form'
-import { bigNumberClass } from '@/components/countdown-summary'
+import { bigNumberStyle } from '@/components/countdown-summary'
 import type { Countdown, CountdownDisplay, ResolvedCountdown } from '@/lib/countdown'
 import { describeSource, sortResolved } from '@/lib/countdown'
 import { getLunar } from '@/lib/lunar'
@@ -142,18 +142,18 @@ export function CountdownScreen({
                     onClick={() =>
                       view === 'select' ? onPick(r.item.id) : onOpenDetail(r.item.id)
                     }
-                    className="flex w-full items-center gap-3 py-4 text-left transition-colors active:bg-muted/60"
+                    className="flex w-full items-center gap-3 py-[var(--cal-row-py)] text-left transition-colors active:bg-muted/60"
                   >
-                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-2">
-                        <span className="truncate text-[1.0625rem] font-light text-foreground">
+                        <span className="truncate text-[length:var(--cal-body-fs)] font-light text-foreground">
                           {r.item.title}
                         </span>
-                        <span className="text-cal-faint shrink-0 text-[0.6875rem]">
+                        <span className="text-cal-faint shrink-0 text-[length:var(--cal-label-fs)]">
                           {r.item.calendar === 'lunar' ? '农历' : '公历'}
                         </span>
                       </span>
-                      <span className="text-muted-foreground truncate text-[0.8125rem] font-light tabular-nums">
+                      <span className="text-muted-foreground truncate text-[length:var(--cal-sub-fs)] font-light tabular-nums">
                         {r.solarText} · {r.lunarText}
                       </span>
                     </span>
@@ -182,8 +182,8 @@ export function CountdownScreen({
               </p>
               <div className="mt-1 flex flex-wrap items-end gap-x-2">
                 <span
+                  style={bigNumberStyle(detailDisplay?.value ?? '')}
                   className={cn(
-                    bigNumberClass(detailDisplay?.value ?? ''),
                     'leading-[0.9] font-extralight tracking-tighter tabular-nums',
                     detailDisplay?.passed ? 'text-cal-faint' : 'text-foreground',
                   )}
