@@ -1,7 +1,8 @@
 'use client'
 
-import { X } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { getLunar } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
 // 农历历表覆盖 1900-01-31 — 2100-12-31，收窄一年以保证相邻月份的农历也可算
@@ -24,27 +25,25 @@ type Props = {
 
 export function MonthPicker({ open, year, month, today, onPick, onToday, onClose }: Props) {
   const [draftYear, setDraftYear] = useState(year)
-  const listRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
   const activeYearRef = useRef<HTMLButtonElement>(null)
 
-  // 每次打开时同步到当前月历年份，并把该年份滚到可视区中间
+  // 每次打开时同步到当前月历年份
   useEffect(() => {
     if (!open) return
     setDraftYear(year)
   }, [open, year])
 
+  // 把选中年份横向滚到条带中间
   useEffect(() => {
     if (!open) return
-    const list = listRef.current
+    const strip = stripRef.current
     const item = activeYearRef.current
-    if (!list || !item) return
-    const top =
-      item.getBoundingClientRect().top -
-      list.getBoundingClientRect().top +
-      list.scrollTop -
-      list.clientHeight / 2 +
-      item.clientHeight / 2
-    list.scrollTo({ top, behavior: 'auto' })
+    if (!strip || !item) return
+    strip.scrollTo({
+      left: item.offsetLeft - strip.clientWidth / 2 + item.clientWidth / 2,
+      behavior: 'auto',
+    })
   }, [open, draftYear])
 
   function stepYear(delta: number) {
@@ -75,114 +74,130 @@ export function MonthPicker({ open, year, month, today, onPick, onToday, onClose
         aria-modal="true"
         aria-label="选择年月"
         className={cn(
-          'border-cal-line relative rounded-t-[1.75rem] border-t bg-background pb-8 transition-transform duration-300 ease-out',
+          'border-cal-line relative border-t bg-background pt-2 pb-6 transition-transform duration-300 ease-out',
           open ? 'translate-y-0' : 'translate-y-full',
         )}
       >
-        <header className="flex items-center gap-2 px-5 pt-5 pb-4">
-          <h2 className="flex-1 text-[1.0625rem] font-light text-foreground">选择年月</h2>
+        {/* 年份导航：与日历顶部同构（左右箭头 + 居中大号年份） */}
+        <header className="flex items-center justify-between px-5 py-1">
+          <button
+            type="button"
+            tabIndex={open ? 0 : -1}
+            onClick={() => stepYear(-1)}
+            aria-label="上一年"
+            className="text-muted-foreground flex size-9 items-center justify-center rounded-full transition-colors active:bg-muted"
+          >
+            <ChevronLeft className="size-6" strokeWidth={1.25} />
+          </button>
           <button
             type="button"
             tabIndex={open ? 0 : -1}
             onClick={onToday}
-            className="border-cal-line h-8 rounded-full border px-4 text-[0.8125rem] font-light text-muted-foreground transition-colors active:bg-muted"
+            className="rounded-full px-2 py-1 text-[length:var(--cal-title-fs)] leading-none font-light tabular-nums text-foreground transition-colors active:bg-muted"
           >
-            今天
+            {draftYear}
+            <span className="text-muted-foreground ml-1.5 text-[length:var(--cal-sub-fs)]">
+              回今天
+            </span>
           </button>
           <button
             type="button"
-            aria-label="关闭"
             tabIndex={open ? 0 : -1}
-            onClick={onClose}
-            className="text-muted-foreground flex size-8 items-center justify-center rounded-full transition-colors active:bg-muted"
+            onClick={() => stepYear(1)}
+            aria-label="下一年"
+            className="text-muted-foreground flex size-9 items-center justify-center rounded-full transition-colors active:bg-muted"
           >
-            <X className="size-5" strokeWidth={1.25} />
+            <ChevronRight className="size-6" strokeWidth={1.25} />
           </button>
         </header>
 
-        <div className="flex gap-4 px-5">
-          {/* 年份：可滚动长列表 + 十年快跳 */}
-          <div className="flex w-24 shrink-0 flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                tabIndex={open ? 0 : -1}
-                onClick={() => stepYear(-10)}
-                className="border-cal-line h-7 flex-1 rounded-full border text-[0.75rem] font-light tabular-nums text-muted-foreground transition-colors active:bg-muted"
-              >
-                -10
-              </button>
-              <button
-                type="button"
-                tabIndex={open ? 0 : -1}
-                onClick={() => stepYear(10)}
-                className="border-cal-line h-7 flex-1 rounded-full border text-[0.75rem] font-light tabular-nums text-muted-foreground transition-colors active:bg-muted"
-              >
-                +10
-              </button>
-            </div>
-            <div
-              ref={listRef}
-              className="h-[13.5rem] snap-y overflow-y-auto overscroll-contain rounded-2xl bg-muted/40"
-            >
-              <ul className="flex flex-col py-1">
-                {YEARS.map((y) => {
-                  const isDraft = y === draftYear
-                  return (
-                    <li key={y} className="snap-center px-1">
-                      <button
-                        type="button"
-                        ref={isDraft ? activeYearRef : undefined}
-                        tabIndex={open ? 0 : -1}
-                        onClick={() => setDraftYear(y)}
-                        className={cn(
-                          'h-9 w-full rounded-full text-[0.9375rem] font-light tabular-nums transition-colors',
-                          isDraft
-                            ? 'bg-cal-accent text-background'
-                            : y === today.getFullYear()
-                              ? 'text-cal-accent'
-                              : 'text-muted-foreground active:bg-muted',
-                        )}
-                      >
-                        {y}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          </div>
-
-          {/* 月份：点选即跳转 */}
-          <div className="grid flex-1 grid-cols-3 gap-2">
-            {MONTHS.map((m) => {
-              const isCurrent = draftYear === year && m === month
-              const isThisMonth = draftYear === today.getFullYear() && m === today.getMonth()
+        {/* 年份条带：横向滑动跨年份，与星期栏同一层级的轻量文字行 */}
+        <div
+          ref={stripRef}
+          className="border-cal-line snap-x snap-mandatory overflow-x-auto overscroll-x-contain border-y"
+        >
+          <div className="flex w-max px-[45%]">
+            {YEARS.map((y) => {
+              const isDraft = y === draftYear
+              const isThisYear = y === today.getFullYear()
               return (
                 <button
-                  key={m}
+                  key={y}
                   type="button"
+                  ref={isDraft ? activeYearRef : undefined}
                   tabIndex={open ? 0 : -1}
-                  onClick={() => onPick(draftYear, m)}
+                  onClick={() => setDraftYear(y)}
                   className={cn(
-                    'flex h-[3.25rem] items-center justify-center rounded-2xl text-[1.0625rem] font-light tabular-nums transition-colors',
-                    isCurrent
-                      ? 'bg-cal-accent text-background'
-                      : isThisMonth
-                        ? 'text-cal-accent bg-cal-accent-soft'
-                        : 'bg-muted/40 text-foreground active:bg-muted',
+                    'relative shrink-0 snap-center px-3 py-2 text-[length:var(--cal-week-fs)] font-light tabular-nums transition-colors',
+                    isDraft
+                      ? 'text-foreground'
+                      : isThisYear
+                        ? 'text-cal-accent'
+                        : 'text-cal-faint',
                   )}
                 >
-                  {m + 1}月
+                  {y}
+                  {/* 选中年份用细下划线标示，沿用日历的极简标记 */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'bg-cal-accent absolute inset-x-3 bottom-1 h-px transition-opacity',
+                      isDraft ? 'opacity-100' : 'opacity-0',
+                    )}
+                  />
                 </button>
               )
             })}
           </div>
         </div>
 
-        <p className="text-cal-faint px-5 pt-4 text-[0.75rem] font-light">
-          先选年份，再点月份即可跳转
-        </p>
+        {/* 月份网格：格子高度与日历一致，主数字 + 农历月名的双行结构 */}
+        <div className="grid grid-cols-4 px-1 pt-1">
+          {MONTHS.map((m) => {
+            const isCurrent = draftYear === year && m === month
+            const isThisMonth = draftYear === today.getFullYear() && m === today.getMonth()
+            const lunarMonth = getLunar(new Date(draftYear, m, 1)).monthName
+            return (
+              <button
+                key={m}
+                type="button"
+                tabIndex={open ? 0 : -1}
+                onClick={() => onPick(draftYear, m)}
+                aria-current={isCurrent ? 'true' : undefined}
+                className="relative flex h-[var(--cal-cell-h)] flex-col items-center justify-center outline-none"
+              >
+                {/* 当前所在月：与「今天」同样的实心圆底 */}
+                <span
+                  className={cn(
+                    'absolute top-1/2 left-1/2 size-[calc(var(--cal-today-size)*1.5)] -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ease-out',
+                    isCurrent ? 'bg-cal-accent scale-100' : 'scale-50 bg-transparent',
+                  )}
+                />
+                <span
+                  className={cn(
+                    'relative text-[length:var(--cal-date-fs)] leading-none font-light tabular-nums transition-colors',
+                    isCurrent
+                      ? 'text-background font-normal'
+                      : isThisMonth
+                        ? 'text-cal-accent'
+                        : 'text-foreground',
+                  )}
+                >
+                  {m + 1}
+                  <span className="text-[length:var(--cal-lunar-fs)]">月</span>
+                </span>
+                <span
+                  className={cn(
+                    'relative mt-0.5 text-[length:var(--cal-lunar-fs)] leading-none',
+                    isCurrent ? 'text-background/90' : 'text-muted-foreground',
+                  )}
+                >
+                  {lunarMonth}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
