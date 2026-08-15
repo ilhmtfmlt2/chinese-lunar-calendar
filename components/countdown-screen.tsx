@@ -3,7 +3,8 @@
 import { Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { CountdownForm } from '@/components/countdown-form'
-import type { Countdown, ResolvedCountdown } from '@/lib/countdown'
+import { bigNumberClass } from '@/components/countdown-summary'
+import type { Countdown, CountdownDisplay, ResolvedCountdown } from '@/lib/countdown'
 import { describeSource, sortResolved } from '@/lib/countdown'
 import { getLunar } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,8 @@ type Props = {
   onAdd: (item: Omit<Countdown, 'id'>) => void
   onRemove: (id: string) => void
   onFocusDate: (date: Date) => void
+  /** 按当前显示单位换算 */
+  format: (item: ResolvedCountdown) => CountdownDisplay
 }
 
 const TITLES: Record<ScreenView, string> = {
@@ -31,19 +34,29 @@ const TITLES: Record<ScreenView, string> = {
   detail: '倒数日详情',
 }
 
-function DaysBadge({ days }: { days: number }) {
-  const passed = days < 0
+function UnitBadge({ display }: { display: CountdownDisplay }) {
   return (
-    <span className="flex shrink-0 items-baseline gap-1">
-      <span
-        className={cn(
-          'text-[1.5rem] leading-none font-extralight tabular-nums',
-          passed ? 'text-cal-faint' : 'text-foreground',
-        )}
-      >
-        {Math.abs(days)}
+    <span className="flex max-w-[8.5rem] shrink-0 flex-col items-end">
+      <span className="flex items-baseline gap-1">
+        <span
+          className={cn(
+            'leading-none font-extralight tabular-nums',
+            display.value.length > 6 ? 'text-[1.125rem]' : 'text-[1.5rem]',
+            display.passed ? 'text-cal-faint' : 'text-foreground',
+          )}
+        >
+          {display.value}
+        </span>
+        <span className="text-cal-faint text-[0.75rem] font-light">
+          {display.unit}
+          {display.passed ? '前' : ''}
+        </span>
       </span>
-      <span className="text-cal-faint text-[0.75rem] font-light">{passed ? '天前' : '天'}</span>
+      {display.extra ? (
+        <span className="text-cal-faint text-[0.75rem] font-light tabular-nums">
+          {display.extra}
+        </span>
+      ) : null}
     </span>
   )
 }
@@ -60,14 +73,17 @@ export function CountdownScreen({
   onAdd,
   onRemove,
   onFocusDate,
+  format,
 }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const sorted = sortResolved(list)
   const detail = list.find((r) => r.item.id === detailId)
+  const detailDisplay = detail ? format(detail) : undefined
 
   return (
     <div
       aria-hidden={!view}
+      inert={!view}
       className={cn(
         'fixed inset-0 z-30 mx-auto flex max-w-md flex-col bg-background transition-transform duration-300 ease-out',
         view ? 'translate-x-0' : 'pointer-events-none translate-x-full',
@@ -141,7 +157,7 @@ export function CountdownScreen({
                         {r.solarText} · {r.lunarText}
                       </span>
                     </span>
-                    <DaysBadge days={r.days} />
+                    <UnitBadge display={format(r)} />
                     {view === 'select' ? (
                       isActive ? (
                         <Check className="text-cal-accent size-5 shrink-0" strokeWidth={1.5} />
@@ -162,18 +178,26 @@ export function CountdownScreen({
           <div className="px-5">
             <div className="border-cal-line flex flex-col items-start border-b py-8">
               <p className="text-muted-foreground text-[0.8125rem] tracking-[0.2em]">
-                {detail.days < 0 ? '已过去' : '还有'}
+                {detailDisplay?.passed ? '已过去' : '还有'}
               </p>
-              <div className="mt-1 flex items-end gap-2">
+              <div className="mt-1 flex flex-wrap items-end gap-x-2">
                 <span
                   className={cn(
-                    'text-[6rem] leading-[0.9] font-extralight tracking-tighter tabular-nums',
-                    detail.days < 0 ? 'text-cal-faint' : 'text-foreground',
+                    bigNumberClass(detailDisplay?.value ?? ''),
+                    'leading-[0.9] font-extralight tracking-tighter tabular-nums',
+                    detailDisplay?.passed ? 'text-cal-faint' : 'text-foreground',
                   )}
                 >
-                  {Math.abs(detail.days)}
+                  {detailDisplay?.value}
                 </span>
-                <span className="text-muted-foreground pb-3 text-[1.125rem] font-light">天</span>
+                <span className="text-muted-foreground pb-2 text-[1.125rem] font-light">
+                  {detailDisplay?.unit}
+                </span>
+                {detailDisplay?.extra ? (
+                  <span className="text-muted-foreground pb-2 text-[1rem] font-light tabular-nums">
+                    {detailDisplay.extra}
+                  </span>
+                ) : null}
               </div>
               <p className="mt-2 text-[1.375rem] font-light text-foreground">{detail.item.title}</p>
             </div>
