@@ -23,12 +23,13 @@ import {
   describeStart,
   resolveSettings,
   sortResolved,
+  supportsInclusive,
   unitLabel,
 } from '@/lib/countdown'
 import { getLunar } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
-export type ScreenView = 'all' | 'select' | 'add' | 'detail'
+export type ScreenView = 'all' | 'select' | 'add' | 'detail' | 'categories'
 
 type Props = {
   view: ScreenView | null
@@ -37,6 +38,7 @@ type Props = {
   detailId?: string
   onClose: () => void
   onOpenAdd: () => void
+  onOpenCategories: () => void
   onOpenDetail: (id: string) => void
   onPick: (id: string) => void
   onAdd: (item: Omit<Countdown, 'id'>) => void
@@ -60,6 +62,7 @@ const TITLES: Record<ScreenView, string> = {
   select: '选择目标',
   add: '添加倒数日',
   detail: '倒数日详情',
+  categories: '管理分类',
 }
 
 function UnitBadge({ display }: { display: CountdownDisplay }) {
@@ -96,6 +99,7 @@ export function CountdownScreen({
   detailId,
   onClose,
   onOpenAdd,
+  onOpenCategories,
   onOpenDetail,
   onPick,
   onAdd,
@@ -109,6 +113,8 @@ export function CountdownScreen({
   format,
 }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [categoryName, setCategoryName] = useState('')
+  const [categoryMessage, setCategoryMessage] = useState('')
   // 分类筛选，空表示全部
   const [filter, setFilter] = useState<string | null>(null)
   const visible = filter ? list.filter((r) => r.item.category === filter) : list
@@ -191,6 +197,15 @@ export function CountdownScreen({
                   )
                 })}
               </div>
+              {view === 'all' ? (
+                <button
+                  type="button"
+                  onClick={onOpenCategories}
+                  className="text-muted-foreground shrink-0 text-[length:var(--cal-label-fs)] font-light"
+                >
+                  管理
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onToggleSort}
@@ -261,32 +276,103 @@ export function CountdownScreen({
           </>
         ) : null}
 
+        {view === 'categories' ? (
+          <div className="flex flex-col px-5 pb-6">
+            <p className="text-muted-foreground py-4 text-[0.875rem] leading-relaxed font-light">
+              分类用于筛选倒数日。新建后会立即出现在添加表单和列表筛选中。
+            </p>
+            <ul className="border-cal-line border-t">
+              {categories.map((name) => {
+                const count = list.filter((entry) => entry.item.category === name).length
+                return (
+                  <li
+                    key={name}
+                    className="border-cal-line flex items-center justify-between border-b py-3.5"
+                  >
+                    <span className="text-[1rem] font-light text-foreground">{name}</span>
+                    <span className="text-cal-faint text-[0.8125rem] font-light">
+                      {count} 个倒数日
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+            <div className="flex items-center gap-2 py-5">
+              <input
+                aria-label="新分类名称"
+                value={categoryName}
+                onChange={(event) => {
+                  setCategoryName(event.target.value)
+                  setCategoryMessage('')
+                }}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                  if (event.key !== 'Enter') return
+                  const name = categoryName.trim()
+                  if (!name) return setCategoryMessage('请输入分类名称')
+                  if (categories.includes(name)) return setCategoryMessage('该分类已存在')
+                  onCreateCategory(name)
+                  setCategoryName('')
+                  setCategoryMessage(`已新建“${name}”`)
+                }}
+                placeholder="输入新分类，如：健身"
+                className="border-cal-line min-w-0 flex-1 rounded-full border bg-transparent px-3 py-2.5 text-[0.9375rem] font-light text-foreground outline-none placeholder:text-cal-faint"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const name = categoryName.trim()
+                  if (!name) return setCategoryMessage('请输入分类名称')
+                  if (categories.includes(name)) return setCategoryMessage('该分类已存在')
+                  onCreateCategory(name)
+                  setCategoryName('')
+                  setCategoryMessage(`已新建“${name}”`)
+                }}
+                className="border-cal-line shrink-0 rounded-full border px-4 py-2.5 text-[0.875rem] font-light text-foreground"
+              >
+                新建
+              </button>
+            </div>
+            {categoryMessage ? (
+              <p role="status" className="text-cal-faint text-[0.8125rem] font-light">
+                {categoryMessage}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {view === 'detail' && detail ? (
           <div className="px-5">
-            <div className="border-cal-line flex flex-col items-start border-b py-8">
-              <p className="text-muted-foreground text-[0.8125rem] tracking-[0.2em]">
-                {detailDisplay?.passed ? '已过去' : '还有'}
-              </p>
-              <div className="mt-1 flex flex-wrap items-end gap-x-2">
+            <div className="border-cal-line flex flex-col gap-2 border-b py-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-[1.125rem] font-light text-foreground">
+                  {detail.item.title}
+                </p>
+                <span className="text-cal-faint shrink-0 text-[0.75rem] font-light">
+                  {detailDisplay?.passed ? '已过去' : '倒计时中'}
+                </span>
+              </div>
+              <div className="flex min-h-12 flex-wrap items-end gap-x-2">
                 <span
-                  style={bigNumberStyle(detailDisplay?.value ?? '')}
+                  style={bigNumberStyle(detailDisplay?.value ?? '', 0.58)}
+                  aria-live="off"
                   className={cn(
-                    'leading-[0.9] font-extralight tracking-tighter tabular-nums',
+                    'leading-none font-extralight tracking-tighter tabular-nums',
                     detailDisplay?.passed ? 'text-cal-faint' : 'text-foreground',
                   )}
                 >
                   {detailDisplay?.value}
                 </span>
-                <span className="text-muted-foreground pb-2 text-[1.125rem] font-light">
+                <span className="text-muted-foreground pb-1 text-[1rem] font-light">
                   {detailDisplay?.unit}
+                  {detailDisplay?.passed ? '前' : ''}
                 </span>
                 {detailDisplay?.extra ? (
-                  <span className="text-muted-foreground pb-2 text-[1rem] font-light tabular-nums">
+                  <span className="text-muted-foreground pb-1 text-[0.9375rem] font-light tabular-nums">
                     {detailDisplay.extra}
                   </span>
                 ) : null}
               </div>
-              <p className="mt-2 text-[1.375rem] font-light text-foreground">{detail.item.title}</p>
             </div>
 
             <dl className="text-[0.9375rem] font-light">
@@ -294,7 +380,7 @@ export function CountdownScreen({
                 ['日历类型', detail.item.calendar === 'lunar' ? '农历' : '公历'],
                 ['开始日期', describeStart(detail.item)],
                 ['重复', describeRepeat(detail.item)],
-                ['时刻', detail.item.time ?? '整天（00:00）'],
+                ['时间口径', detail.item.time ? `指定时刻 ${detail.item.time}` : '全天'],
                 ['分类', detail.item.category],
                 ['下一次（公历）', detail.solarText],
                 ['农历日期', detail.lunarText],
@@ -307,7 +393,14 @@ export function CountdownScreen({
                     ? unitLabel(detail.item.unit)
                     : `${unitLabel(settings.unit)}（跟随默认）`,
                 ],
-                ['包含起止日期', detailSettings?.inclusive ? '是' : '否'],
+                [
+                  '计算口径',
+                  detailSettings && supportsInclusive(detailSettings.unit)
+                    ? detailSettings.inclusive
+                      ? '自然日 · 包含起止日期'
+                      : '自然日 · 不包含起止日期'
+                    : '目标时刻 · 精确计算',
+                ],
               ].map(([k, v]) => (
                 <div key={k} className="border-cal-line flex items-center justify-between border-b py-3.5">
                   <dt className="text-muted-foreground">{k}</dt>
