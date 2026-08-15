@@ -87,24 +87,11 @@ export function MonthGrid({
               dimmed && isSelected && 'opacity-45',
             )}
           >
-            {/* 倒数日目标：细圈；与今天并存时外扩一圈 */}
-            {isTarget && (
-              <span
-                aria-hidden
-                className={cn(
-                  'border-cal-accent/45 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border',
-                  isToday ? 'size-[3.375rem]' : 'size-12',
-                )}
-              />
-            )}
-
-            {/* 选中/今天圆形底 */}
+            {/* 今天圆形底（选中态不再加浅红底，避免抢视觉） */}
             <span
               className={cn(
                 'absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ease-out',
-                isToday && 'bg-cal-accent scale-100',
-                !isToday && isSelected && 'bg-cal-accent-soft scale-100',
-                !isToday && !isSelected && 'scale-50 bg-transparent',
+                isToday ? 'bg-cal-accent scale-100' : 'scale-50 bg-transparent',
               )}
             />
             <span
@@ -135,9 +122,21 @@ export function MonthGrid({
             >
               {lunar.label}
             </span>
-            {/* 事件：最多三点，超出以更宽的短横表示 */}
-            {eventCount > 0 && (
+            {/* 标记行：绝对定位在农历文字下方居中，不影响日期与农历的居中对齐 */}
+            {(isTarget || eventCount > 0) && (
               <span className="absolute bottom-1.5 flex items-center gap-[0.1875rem]">
+                {/* 倒数日：一个小圆点；同日多个也只显示一个，点击当天展开详情 */}
+                {isTarget && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'size-1 rounded-full',
+                      isToday ? 'bg-background/90' : 'bg-cal-accent',
+                      !inMonth && !isToday && 'opacity-45',
+                    )}
+                  />
+                )}
+                {/* 事件：最多三点，超出以更宽的短横表示 */}
                 {Array.from({ length: Math.min(eventCount, 3) }).map((_, i) => (
                   <span
                     key={i}
