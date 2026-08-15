@@ -148,11 +148,13 @@ export function CalendarApp() {
     setSettings((prev) => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))
   }
 
-  /** 置顶 / 取消置顶 */
+  /** 置顶 / 取消置顶；新置顶的条目立即成为首页当前目标 */
   function togglePin(id: string) {
-    setCountdowns((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item)),
-    )
+    setCountdowns((prev) => {
+      const willPin = !prev.find((item) => item.id === id)?.pinned
+      if (willPin) setActiveId(id)
+      return prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
+    })
   }
 
   function createCategory(name: string) {
@@ -197,19 +199,10 @@ export function CalendarApp() {
     return map
   }, [events])
 
-  // 推算目标要带上真实时刻（否则「每天 07:00」过了点也不会顺延），
-  // 但按分钟取整，避免秒级刷新时反复重算整张列表
-  const minuteKey = `${todayKey} ${now.getHours()}:${now.getMinutes()}`
-  const clock = useMemo(() => {
-    const [date, time] = minuteKey.split(' ')
-    const [y, m, d] = date.split('-').map(Number)
-    const [h, min] = time.split(':').map(Number)
-    return new Date(y, m - 1, d, h, min)
-  }, [minuteKey])
-
+  // 目标推算直接使用真实当前时刻：指定时刻一到，重复条目立即顺延到下一次。
   const resolved = useMemo(
-    () => countdowns.map((item) => resolveCountdown(item, clock)),
-    [countdowns, clock],
+    () => countdowns.map((item) => resolveCountdown(item, now)),
+    [countdowns, now],
   )
   // 未指定目标时，首页优先显示置顶条目（sortResolved 已把置顶排在最前）
   const active =
@@ -319,7 +312,7 @@ export function CalendarApp() {
       data-density={preferences.density}
       className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background pt-2"
     >
-      {/* 顶部：年/月·周 与月份切换 */}
+      {/* 顶部：年/月·周 与月份切��� */}
       <header className="flex items-center justify-between px-5 py-1">
         <button
           type="button"
@@ -500,6 +493,7 @@ export function CalendarApp() {
           setDetailId(undefined)
         }}
         onOpenAdd={() => setScreen('add')}
+        onOpenCategories={() => setScreen('categories')}
         onOpenDetail={(id) => {
           setDetailId(id)
           setScreen('detail')
