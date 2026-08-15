@@ -14,6 +14,8 @@ type Props = {
   countdowns: ResolvedCountdown[]
   /** 按当前显示单位换算 */
   format: (item: ResolvedCountdown) => CountdownDisplay
+  /** 是否显示「第 N 周」 */
+  showWeekNumber: boolean
   onOpenCountdown: (id: string) => void
   onAddEvent: (title: string) => void
   onRemoveEvent: (index: number) => void
@@ -24,7 +26,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone: 'red' | 'blu
   return (
     <span
       className={cn(
-        'inline-flex h-[1.375rem] shrink-0 items-center rounded-[0.25rem] px-1.5 text-[0.8125rem] leading-none',
+        'inline-flex h-[1.375rem] shrink-0 items-center rounded-[0.25rem] px-1.5 text-[length:var(--cal-sub-fs)] leading-none',
         tone === 'red' && 'bg-cal-accent text-background',
         tone === 'blue' && 'bg-cal-festival text-background',
         tone === 'plain' && 'border-cal-line text-muted-foreground border',
@@ -42,6 +44,7 @@ export function DayDetail({
   events,
   countdowns,
   format,
+  showWeekNumber,
   onOpenCountdown,
   onAddEvent,
   onRemoveEvent,
@@ -90,8 +93,9 @@ export function DayDetail({
       <div className="flex min-h-0 flex-col gap-2">
         <div className="flex items-center gap-2">
           <Tag tone="red">{isToday ? '今天' : '日期'}</Tag>
-          <p className="text-[0.9375rem] text-foreground">
-            {date.getMonth() + 1}月{date.getDate()}日{isToday ? '(今天)' : ''} 第 {week} 周
+          <p className="text-[length:var(--cal-body-fs)] text-foreground">
+            {date.getMonth() + 1}月{date.getDate()}日{isToday ? '(今天)' : ''}
+            {showWeekNumber ? ` 第 ${week} 周` : ''}
           </p>
           <button
             type="button"
@@ -105,7 +109,7 @@ export function DayDetail({
 
         <div className="flex items-center gap-2">
           <Tag tone="blue">农历</Tag>
-          <p className="text-[0.9375rem] text-foreground">
+          <p className="text-[length:var(--cal-body-fs)] text-foreground">
             {lunar.ganzhi} ({lunar.animal}) 年 {lunar.monthName}
             {lunar.dayName}
             {lunar.term ? ` · ${lunar.term}` : ''}
@@ -127,10 +131,10 @@ export function DayDetail({
                   className="flex w-full items-center gap-2 text-left"
                 >
                   <span className="border-cal-accent/60 size-[0.4375rem] shrink-0 rounded-full border" />
-                  <span className="min-w-0 truncate text-[0.9375rem] text-foreground">
+                  <span className="min-w-0 truncate text-[length:var(--cal-body-fs)] text-foreground">
                     {c.item.title}
                   </span>
-                  <span className="text-muted-foreground shrink-0 text-[0.8125rem] tabular-nums">
+                  <span className="text-muted-foreground shrink-0 text-[length:var(--cal-sub-fs)] tabular-nums">
                     {format(c).text}
                   </span>
                 </button>
@@ -146,11 +150,11 @@ export function DayDetail({
             {events.map((event, index) => (
               <div key={`${event}-${index}`} className="flex items-center gap-2">
                 <span className="bg-cal-event size-[0.3125rem] shrink-0 rounded-full" />
-                <p className="min-w-0 flex-1 truncate text-[0.9375rem] text-foreground">{event}</p>
+                <p className="min-w-0 flex-1 truncate text-[length:var(--cal-body-fs)] text-foreground">{event}</p>
                 <button
                   type="button"
                   onClick={() => onRemoveEvent(index)}
-                  className="text-cal-faint shrink-0 text-[0.8125rem]"
+                  className="text-cal-faint shrink-0 text-[length:var(--cal-sub-fs)]"
                   aria-label={`删除事件 ${event}`}
                 >
                   <X className="size-3.5" strokeWidth={2} />
@@ -173,13 +177,13 @@ export function DayDetail({
                   }
                 }}
                 placeholder="输入事件名称"
-                className="border-cal-line placeholder:text-cal-faint h-7 w-full border-b bg-transparent text-[0.9375rem] text-foreground outline-none"
+                className="border-cal-line placeholder:text-cal-faint h-7 w-full border-b bg-transparent text-[length:var(--cal-body-fs)] text-foreground outline-none"
               />
             ) : (
               <button
                 type="button"
                 onClick={() => setAdding(true)}
-                className="text-muted-foreground flex w-fit items-center gap-1 text-[0.9375rem] transition-colors active:text-foreground"
+                className="text-muted-foreground flex w-fit items-center gap-1 text-[length:var(--cal-body-fs)] transition-colors active:text-foreground"
               >
                 <Plus className="size-4" strokeWidth={1.75} />
                 添加事件
