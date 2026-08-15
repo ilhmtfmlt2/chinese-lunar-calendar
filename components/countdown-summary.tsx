@@ -8,7 +8,7 @@ import type {
   CountdownUnit,
   ResolvedCountdown,
 } from '@/lib/countdown'
-import { describeSource, UNIT_OPTIONS, unitLabel } from '@/lib/countdown'
+import { describeSource, supportsInclusive, UNIT_OPTIONS, unitLabel } from '@/lib/countdown'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -121,25 +121,31 @@ export function CountdownSummary({
                     </button>
                   )
                 })}
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={itemSettings.inclusive}
-                  onClick={onToggleInclusive}
-                  className="border-cal-line flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[length:var(--cal-sub-fs)] font-light transition-colors active:bg-muted"
-                >
-                  <span
-                    className={cn(
-                      'flex-1 truncate',
-                      itemSettings.inclusive ? 'text-cal-accent' : 'text-muted-foreground',
-                    )}
+                {supportsInclusive(itemSettings.unit) ? (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={itemSettings.inclusive}
+                    onClick={onToggleInclusive}
+                    className="border-cal-line flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[length:var(--cal-sub-fs)] font-light transition-colors active:bg-muted"
                   >
-                    包含起止日期
-                  </span>
-                  {itemSettings.inclusive ? (
-                    <Check className="text-cal-accent size-3.5 shrink-0" strokeWidth={1.5} />
-                  ) : null}
-                </button>
+                    <span
+                      className={cn(
+                        'flex-1 truncate',
+                        itemSettings.inclusive ? 'text-cal-accent' : 'text-muted-foreground',
+                      )}
+                    >
+                      包含起止日期
+                    </span>
+                    {itemSettings.inclusive ? (
+                      <Check className="text-cal-accent size-3.5 shrink-0" strokeWidth={1.5} />
+                    ) : null}
+                  </button>
+                ) : (
+                  <p className="text-cal-faint border-cal-line border-t px-3 py-2 text-[length:var(--cal-label-fs)]">
+                    按目标时刻精确计算
+                  </p>
+                )}
               </div>
             )}
           </div>
