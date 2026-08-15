@@ -171,6 +171,59 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * 布局密度：统一控制字号、格子高度与区块留白
+ * 默认（无 data-density 时）即为紧凑
+ * ------------------------------------------------------------------ */
+:root,
+[data-density='compact'] {
+  --cal-cell-h: 3.125rem;
+  --cal-today-size: 2.5rem;
+  --cal-date-fs: 1.1875rem;
+  --cal-lunar-fs: 0.625rem;
+  --cal-week-fs: 0.8125rem;
+  --cal-title-fs: 1.5rem;
+  --cal-big-fs: 3.25rem;
+  --cal-body-fs: 0.9375rem;
+  --cal-sub-fs: 0.75rem;
+  --cal-label-fs: 0.6875rem;
+  --cal-row-py: 0.625rem;
+  --cal-block-py: 0.625rem;
+  --cal-stack-gap: 0.375rem;
+}
+
+[data-density='standard'] {
+  --cal-cell-h: 3.75rem;
+  --cal-today-size: 3rem;
+  --cal-date-fs: 1.375rem;
+  --cal-lunar-fs: 0.6875rem;
+  --cal-week-fs: 0.9375rem;
+  --cal-title-fs: 1.75rem;
+  --cal-big-fs: 4.25rem;
+  --cal-body-fs: 1.0625rem;
+  --cal-sub-fs: 0.8125rem;
+  --cal-label-fs: 0.8125rem;
+  --cal-row-py: 0.875rem;
+  --cal-block-py: 1rem;
+  --cal-stack-gap: 0.5rem;
+}
+
+[data-density='loose'] {
+  --cal-cell-h: 4.375rem;
+  --cal-today-size: 3.25rem;
+  --cal-date-fs: 1.5rem;
+  --cal-lunar-fs: 0.75rem;
+  --cal-week-fs: 1rem;
+  --cal-title-fs: 1.875rem;
+  --cal-big-fs: 5rem;
+  --cal-body-fs: 1.125rem;
+  --cal-sub-fs: 0.875rem;
+  --cal-label-fs: 0.875rem;
+  --cal-row-py: 1.125rem;
+  --cal-block-py: 1.375rem;
+  --cal-stack-gap: 0.625rem;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
