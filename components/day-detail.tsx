@@ -2,7 +2,7 @@
 
 import { Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { ResolvedCountdown } from '@/lib/countdown'
+import type { CountdownDisplay, ResolvedCountdown } from '@/lib/countdown'
 import { getLunar, getWeekOfYear, isSameDay } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +12,8 @@ type Props = {
   today: Date
   events: string[]
   countdowns: ResolvedCountdown[]
+  /** 按当前显示单位换算 */
+  format: (item: ResolvedCountdown) => CountdownDisplay
   onOpenCountdown: (id: string) => void
   onAddEvent: (title: string) => void
   onRemoveEvent: (index: number) => void
@@ -39,6 +41,7 @@ export function DayDetail({
   today,
   events,
   countdowns,
+  format,
   onOpenCountdown,
   onAddEvent,
   onRemoveEvent,
@@ -75,6 +78,7 @@ export function DayDetail({
   return (
     <section
       aria-hidden={!open}
+      inert={!open}
       className={cn(
         // 以网格行高度动画实现「插入 / 收起」，把月历向下推移
         'grid overflow-hidden px-5 transition-[grid-template-rows,opacity] duration-300 ease-out',
@@ -127,7 +131,7 @@ export function DayDetail({
                     {c.item.title}
                   </span>
                   <span className="text-muted-foreground shrink-0 text-[0.8125rem] tabular-nums">
-                    {c.days === 0 ? '就是今天' : c.days > 0 ? `还有 ${c.days} 天` : `已过 ${-c.days} 天`}
+                    {format(c).text}
                   </span>
                 </button>
               ))}
