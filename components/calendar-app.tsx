@@ -1,12 +1,24 @@
 'use client'
 
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CountdownScreen, type ScreenView } from '@/components/countdown-screen'
 import { CountdownSummary } from '@/components/countdown-summary'
 import { DayDetail } from '@/components/day-detail'
 import { buildMonthCells, MonthGrid } from '@/components/month-grid'
-import { type Countdown, resolveCountdown } from '@/lib/countdown'
+import { MAX_YEAR, MIN_YEAR, MonthPicker } from '@/components/month-picker'
+import { SettingsScreen, type SettingsView } from '@/components/settings-screen'
+import {
+  type Countdown,
+  type CountdownSettings,
+  type CountdownUnit,
+  DEFAULT_SETTINGS,
+  formatCountdown,
+  needsSecondTick,
+  type ResolvedCountdown,
+  resolveCountdown,
+  UNIT_OPTIONS,
+} from '@/lib/countdown'
 import { dateKey, getWeekOfYear, isSameDay } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
@@ -20,8 +32,17 @@ const INITIAL_COUNTDOWNS: Countdown[] = [
 ]
 
 export function CalendarApp() {
-  const today = useMemo(() => new Date(), [])
-  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
+  // 走动的时钟：跨零点自动换「今天」，秒级单位下每秒刷新
+  const [now, setNow] = useState(() => new Date())
+  const [mounted, setMounted] = useState(false)
+  const [settings, setSettings] = useState<CountdownSettings>(DEFAULT_SETTINGS)
+  const todayKey = dateKey(now)
+  const today = useMemo(() => {
+    const [y, m, d] = todayKey.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }, [todayKey])
+
+  const [cursor, setCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1))
   const [selected, setSelected] = useState(today)
   const [detailOpen, setDetailOpen] = useState(false)
   const [events, setEvents] = useState<Record<string, string[]>>(() => ({}))
@@ -29,7 +50,20 @@ export function CalendarApp() {
   const [activeId, setActiveId] = useState(INITIAL_COUNTDOWNS[0]?.id)
   const [screen, setScreen] = useState<ScreenView | null>(null)
   const [detailId, setDetailId] = useState<string>()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [settingsView, setSettingsView] = useState<SettingsView | null>(null)
+  /** 「关于」是否从设置页进入（决定返回到设置还是日历） */
+  const [aboutFromSettings, setAboutFromSettings] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => setMounted(true), [])
+
+  // 秒级单位每秒走一次，其余每分钟走一次（用于跨零点换日）
+  useEffect(() => {
+    const step = needsSecondTick(settings) ? 1000 : 30_000
+    const id = setInterval(() => setNow(new Date()), step)
+    return () => clearInterval(id)
+  }, [settings])
 
   const cells = useMemo(
     () => buildMonthCells(cursor.getFullYear(), cursor.getMonth()),
@@ -48,6 +82,11 @@ export function CalendarApp() {
     [countdowns, today],
   )
   const active = resolved.find((r) => r.item.id === activeId) ?? resolved[0]
+
+  // 服务端渲染阶段先按「天」显示，挂载后再切到真实单位，避免时刻类文本水合不一致
+  const effectiveSettings = mounted ? settings : DEFAULT_SETTINGS
+  const format = (item: ResolvedCountdown) => formatCountdown(item, effectiveSettings, now)
+  const unitLabel = UNIT_OPTIONS.find((o) => o.key === settings.unit)?.label ?? '天'
 
   /** 倒数日目标日 → 名称（同一天可有多个） */
   const countdownTitles = useMemo(() => {
@@ -72,8 +111,27 @@ export function CalendarApp() {
   )
 
   function shiftMonth(delta: number) {
-    setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1))
+    setCursor((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
+      // 超出农历历表范围时保持原位，避免出现「undefined月」
+      if (next.getFullYear() < MIN_YEAR || next.getFullYear() > MAX_YEAR) return prev
+      return next
+    })
     setDetailOpen(false)
+  }
+
+  /** 年月选择器：跨年跨月直接跳转 */
+  function jumpTo(year: number, month: number) {
+    setCursor(new Date(year, month, 1))
+    setDetailOpen(false)
+    setPickerOpen(false)
+  }
+
+  function goToday() {
+    setCursor(new Date(today.getFullYear(), today.getMonth(), 1))
+    setSelected(today)
+    setDetailOpen(false)
+    setPickerOpen(false)
   }
 
   function handleSelect(date: Date) {
@@ -137,15 +195,14 @@ export function CalendarApp() {
         </button>
         <button
           type="button"
-          onClick={() => {
-            setCursor(new Date(today.getFullYear(), today.getMonth(), 1))
-            setSelected(today)
-            setDetailOpen(false)
-          }}
-          className="text-[1.75rem] leading-none font-light tabular-nums text-foreground"
+          onClick={() => setPickerOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={pickerOpen}
+          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[1.75rem] leading-none font-light tabular-nums text-foreground transition-colors active:bg-muted"
         >
           {cursor.getFullYear()} <span className="text-muted-foreground">/</span>{' '}
           {cursor.getMonth() + 1} <span className="text-muted-foreground">·</span> {headerWeek}
+          <ChevronDown className="text-muted-foreground size-4" strokeWidth={1.5} />
         </button>
         <button
           type="button"
@@ -197,6 +254,7 @@ export function CalendarApp() {
           today={today}
           events={events[dateKey(selected)] ?? []}
           countdowns={selectedCountdowns}
+          format={format}
           onOpenCountdown={(id) => {
             setDetailId(id)
             setScreen('detail')
@@ -228,12 +286,61 @@ export function CalendarApp() {
 
       <CountdownSummary
         active={active}
+        display={active ? format(active) : undefined}
+        unitLabel={unitLabel}
         total={countdowns.length}
         onOpenAll={() => setScreen('all')}
         onOpenSelect={() => setScreen('select')}
         onOpenAdd={() => setScreen('add')}
+        onOpenSettings={() => setSettingsView('settings')}
       />
-      <div className="h-8" />
+
+      {/* 页脚：设置 与 关于 入口 */}
+      <footer className="flex items-center justify-center gap-6 px-5 py-5">
+        <button
+          type="button"
+          onClick={() => setSettingsView('settings')}
+          className="text-muted-foreground text-[0.8125rem] font-light transition-colors active:text-foreground"
+        >
+          设置
+        </button>
+        <span aria-hidden className="bg-cal-line h-3 w-px" />
+        <button
+          type="button"
+          onClick={() => {
+            setAboutFromSettings(false)
+            setSettingsView('about')
+          }}
+          className="text-muted-foreground text-[0.8125rem] font-light transition-colors active:text-foreground"
+        >
+          关于
+        </button>
+      </footer>
+
+      <MonthPicker
+        open={pickerOpen}
+        year={cursor.getFullYear()}
+        month={cursor.getMonth()}
+        today={today}
+        onPick={jumpTo}
+        onToday={goToday}
+        onClose={() => setPickerOpen(false)}
+      />
+
+      <SettingsScreen
+        view={settingsView}
+        settings={settings}
+        onChangeUnit={(unit: CountdownUnit) => setSettings((prev) => ({ ...prev, unit }))}
+        onTogglePrecise={() => setSettings((prev) => ({ ...prev, precise: !prev.precise }))}
+        backLabel={settingsView === 'about' && aboutFromSettings ? '设置' : '日历'}
+        onOpenAbout={() => {
+          setAboutFromSettings(true)
+          setSettingsView('about')
+        }}
+        onClose={() =>
+          setSettingsView(settingsView === 'about' && aboutFromSettings ? 'settings' : null)
+        }
+      />
 
       <CountdownScreen
         view={screen}
@@ -256,6 +363,7 @@ export function CalendarApp() {
         onAdd={addCountdown}
         onRemove={removeCountdown}
         onFocusDate={focusDate}
+        format={format}
       />
     </main>
   )
