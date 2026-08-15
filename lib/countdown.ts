@@ -19,6 +19,10 @@ export type Countdown = {
   day: number
   /** 每年重复（生日、纪念日） */
   repeat: boolean
+  /** 该条目专属的显示单位；不填则跟随设置里的默认单位 */
+  unit?: CountdownUnit
+  /** 该条目是否把起止两天都算进去；不填则跟随默认 */
+  inclusive?: boolean
 }
 
 export type ResolvedCountdown = {
@@ -105,12 +109,28 @@ export function describeSource(item: Countdown) {
 export type CountdownUnit = 'day' | 'compound' | 'hour' | 'minute' | 'second' | 'week' | 'month'
 
 export type CountdownSettings = {
+  /** 默认显示单位，条目未单独设置时使用 */
   unit: CountdownUnit
-  /** 精确到当前时刻（否则按自然日 00:00 计算） */
+  /** 时 / 分 / 秒 类单位是否精确到当前时刻（关闭则从今天 00:00 起算） */
   precise: boolean
+  /** 默认是否包含起止日期，条目未单独设置时使用 */
+  inclusive: boolean
 }
 
-export const DEFAULT_SETTINGS: CountdownSettings = { unit: 'day', precise: false }
+export const DEFAULT_SETTINGS: CountdownSettings = {
+  unit: 'day',
+  precise: true,
+  inclusive: false,
+}
+
+/** 条目自带的单位 / 起止口径优先于全局默认 */
+export function resolveSettings(item: Countdown, settings: CountdownSettings): CountdownSettings {
+  return {
+    unit: item.unit ?? settings.unit,
+    precise: settings.precise,
+    inclusive: item.inclusive ?? settings.inclusive,
+  }
+}
 
 export const UNIT_OPTIONS: { key: CountdownUnit; label: string; hint: string }[] = [
   { key: 'day', label: '天', hint: '默认，只看还有多少天' },
@@ -122,6 +142,15 @@ export const UNIT_OPTIONS: { key: CountdownUnit; label: string; hint: string }[]
   { key: 'month', label: '月', hint: '按自然月换算，余数显示天' },
 ]
 
+export function unitLabel(unit: CountdownUnit) {
+  return UNIT_OPTIONS.find((option) => option.key === unit)?.label ?? '天'
+}
+
+/** 天 / 周 / 月按自然日计算，与当前时刻无关 */
+export function isCalendarUnit(unit: CountdownUnit) {
+  return unit === 'day' || unit === 'week' || unit === 'month'
+}
+
 /** 该单位是否需要逐秒刷新 */
 export function needsSecondTick(settings: CountdownSettings) {
   return (
@@ -129,6 +158,11 @@ export function needsSecondTick(settings: CountdownSettings) {
     settings.unit === 'second' ||
     (settings.precise && (settings.unit === 'minute' || settings.unit === 'hour'))
   )
+}
+
+/** 任一条目使用秒级单位时就得每秒刷新 */
+export function needsSecondTickForAny(items: Countdown[], settings: CountdownSettings) {
+  return items.some((item) => needsSecondTick(resolveSettings(item, settings)))
 }
 
 export type CountdownDisplay = {
@@ -160,18 +194,22 @@ export function formatCountdown(
   settings: CountdownSettings = DEFAULT_SETTINGS,
   now = new Date(),
 ): CountdownDisplay {
-  // 复合单位必须走精确时刻，否则时分秒恒为 0
-  const precise = settings.precise || settings.unit === 'compound'
+  const s = resolveSettings(item.item, settings)
+  const calendarUnit = isCalendarUnit(s.unit)
+  // 天 / 周 / 月按自然日算；时分秒类单位才受「精确到当前时刻」影响；复合单位恒精确
+  const precise = s.unit === 'compound' || (!calendarUnit && s.precise)
   const fromTime = precise ? now.getTime() : startOfDay(now).getTime()
   const diff = item.target.getTime() - fromTime
   const abs = Math.abs(diff)
-  const passed = precise ? diff < 0 : item.days < 0
+  const passed = calendarUnit ? item.days < 0 : diff < 0
   const isToday = item.days === 0
 
   const seconds = Math.floor(abs / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
-  const days = precise ? Math.floor(hours / 24) : Math.abs(item.days)
+  // 包含起止日期：首尾两天都算，天数 +1
+  const bonus = s.inclusive ? 1 : 0
+  const days = calendarUnit ? Math.abs(item.days) + bonus : Math.floor(hours / 24)
 
   const prefix = passed ? '已过' : '还有'
   const done = (value: string, unit: string, extra?: string): CountdownDisplay => ({
@@ -183,7 +221,7 @@ export function formatCountdown(
     text: `${prefix} ${value} ${unit}${extra ? ` ${extra}` : ''}`,
   })
 
-  switch (settings.unit) {
+  switch (s.unit) {
     case 'compound':
       return done(
         NUM.format(days),
@@ -202,14 +240,17 @@ export function formatCountdown(
       return done(NUM.format(weeks), '周', rest > 0 ? `余 ${rest} 天` : undefined)
     }
     case 'month': {
-      const earlier = diff >= 0 ? startOfDay(now) : item.target
-      const later = diff >= 0 ? item.target : startOfDay(now)
+      const from = startOfDay(now)
+      const earlier = item.days >= 0 ? from : item.target
+      let later = item.days >= 0 ? item.target : from
+      // 含起止日期时把区间尾端多算一天
+      if (bonus) later = new Date(later.getFullYear(), later.getMonth(), later.getDate() + bonus)
       const { months, days: rest } = monthsBetween(earlier, later)
       return done(NUM.format(months), '个月', rest > 0 ? `余 ${rest} 天` : undefined)
     }
     default: {
-      const display = done(NUM.format(days), '天')
-      if (!precise && isToday) return { ...display, text: '就是今天' }
+      const display = done(NUM.format(days), '天', s.inclusive ? '含起止' : undefined)
+      if (isToday && !s.inclusive) return { ...display, text: '就是今天' }
       return display
     }
   }
