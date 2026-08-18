@@ -2,13 +2,18 @@
 
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
-import type {
-  CountdownDisplay,
-  CountdownSettings,
-  CountdownUnit,
-  ResolvedCountdown,
+import {
+  colorValue,
+  type CountdownDisplay,
+  type CountdownSettings,
+  type CountdownUnit,
+  describeSource,
+  type ResolvedCountdown,
+  supportsInclusive,
+  UNIT_OPTIONS,
+  unitLabel,
 } from '@/lib/countdown'
-import { describeSource, supportsInclusive, UNIT_OPTIONS, unitLabel } from '@/lib/countdown'
+import { getIcon } from '@/lib/countdown-icons'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -16,6 +21,8 @@ type Props = {
   display?: CountdownDisplay
   /** 当前目标实际生效的单位与起止口径 */
   itemSettings: CountdownSettings
+  /** 分类 → 图标 key，条目未设专属图标时回退到分类图标 */
+  categoryIcons: Record<string, string>
   total: number
   onChangeUnit: (unit: CountdownUnit) => void
   onToggleInclusive: () => void
@@ -37,6 +44,7 @@ export function CountdownSummary({
   active,
   display,
   itemSettings,
+  categoryIcons,
   total,
   onChangeUnit,
   onToggleInclusive,
@@ -193,6 +201,23 @@ export function CountdownSummary({
             <span className="text-muted-foreground shrink-0 text-[length:var(--cal-body-fs)] font-light">
               {passed ? '已过去' : '距离'}
             </span>
+            {(() => {
+              const dotColor = colorValue(active.item.color)
+              const Icon = getIcon(active.item.icon ?? categoryIcons[active.item.category])
+              return active.item.icon ? (
+                <Icon
+                  style={dotColor ? { color: dotColor } : undefined}
+                  className={cn('size-4 shrink-0', !dotColor && 'text-cal-accent')}
+                  strokeWidth={1.75}
+                />
+              ) : active.item.highlight ? (
+                <span
+                  aria-hidden
+                  style={dotColor ? { backgroundColor: dotColor } : undefined}
+                  className={cn('size-1.5 shrink-0 rounded-full', !dotColor && 'bg-cal-accent')}
+                />
+              ) : null
+            })()}
             <span className="min-w-0 truncate text-[length:var(--cal-body-fs)] text-foreground">
               {active.item.title}
             </span>
