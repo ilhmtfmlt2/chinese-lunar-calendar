@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { CountdownForm } from '@/components/countdown-form'
+import { CountdownPoster } from '@/components/countdown-poster'
 import { bigNumberStyle } from '@/components/countdown-summary'
 import {
   colorValue,
@@ -129,6 +130,8 @@ export function CountdownScreen({
   format,
 }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  // 「全部倒数日」点进去先看展示页（大图+跑秒），编辑图标才去下面的详情/编辑
+  const [posterId, setPosterId] = useState<string>()
   const [categoryName, setCategoryName] = useState('')
   const [newCategoryIcon, setNewCategoryIcon] = useState(ICON_OPTIONS[ICON_OPTIONS.length - 1].key)
   const [iconEditFor, setIconEditFor] = useState<string | null>(null)
@@ -148,12 +151,15 @@ export function CountdownScreen({
   const detailSettings = detail ? resolveSettings(detail.item, settings) : undefined
 
   return (
+    <>
     <div
       aria-hidden={!view}
       inert={!view}
       className={cn(
         'fixed inset-0 z-30 mx-auto flex max-w-md flex-col bg-background transition-transform duration-300 ease-out',
-        view ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+        // 用 100vw（而非自身宽度的 translate-x-full）位移，确保宽屏下也能完全移出可见区域，
+        // 不会在收起状态下贴着主日历露出一角
+        view ? 'translate-x-0' : 'pointer-events-none translate-x-[100vw]',
       )}
     >
       <header className="border-cal-line flex items-center border-b px-2 py-3">
@@ -281,7 +287,7 @@ export function CountdownScreen({
                   <button
                     type="button"
                     onClick={() =>
-                      view === 'select' ? onPick(r.item.id) : onOpenDetail(r.item.id)
+                      view === 'select' ? onPick(r.item.id) : setPosterId(r.item.id)
                     }
                     className="flex w-full items-center gap-3 py-[var(--cal-row-py)] text-left transition-colors active:bg-muted/60"
                   >
@@ -658,5 +664,17 @@ export function CountdownScreen({
         ) : null}
       </div>
     </div>
+
+    <CountdownPoster
+      list={sorted}
+      openId={posterId}
+      onClose={() => setPosterId(undefined)}
+      onEdit={(id) => {
+        setPosterId(undefined)
+        onOpenDetail(id)
+      }}
+      categoryIcons={categoryIcons}
+    />
+    </>
   )
 }
