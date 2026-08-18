@@ -1,8 +1,12 @@
 'use client'
 
+import { colorValue } from '@/lib/countdown'
 import { dateKey, getLunar, isSameDay } from '@/lib/lunar'
 import type { Preferences, WeekStart } from '@/lib/preferences'
 import { cn } from '@/lib/utils'
+
+/** 落在某天的倒数日标记：用于圆点着色与高亮判断 */
+export type CountdownMark = { title: string; color?: string; highlight?: boolean }
 
 export type DayCell = {
   date: Date
@@ -28,8 +32,8 @@ type Props = {
   selected: Date
   /** 日期 → 该日事件数量 */
   eventCounts: Map<string, number>
-  /** 日期 → 落在该日的倒数日名称 */
-  countdownTitles: Map<string, string[]>
+  /** 日期 → 落在该日的倒数日条目（名称 / 颜色 / 高亮） */
+  countdownMarks: Map<string, CountdownMark[]>
   /** 详情展开时整个网格淡出 */
   dimmed: boolean
   preferences: Preferences
@@ -43,7 +47,7 @@ export function MonthGrid({
   today,
   selected,
   eventCounts,
-  countdownTitles,
+  countdownMarks,
   dimmed,
   preferences,
   onSelect,
@@ -73,8 +77,12 @@ export function MonthGrid({
         const isToday = isSameDay(date, today)
         const isSelected = isSameDay(date, selected)
         const eventCount = eventCounts.get(key) ?? 0
-        const marks = countdownTitles.get(key) ?? []
+        const marks = countdownMarks.get(key) ?? []
         const isTarget = marks.length > 0
+        // 高亮的条目优先展示；同天多个时取第一个高亮项的颜色，否则取第一项的颜色
+        const primaryMark = marks.find((m) => m.highlight) ?? marks[0]
+        const markColor = colorValue(primaryMark?.color)
+        const markHighlight = Boolean(primaryMark?.highlight)
         const weekend = date.getDay() === 0 || date.getDay() === 6
         // 关闭节气节日后回退为纯农历日
         const subLabel = showFestival
@@ -93,7 +101,7 @@ export function MonthGrid({
             aria-label={[
               `${date.getMonth() + 1}月${date.getDate()}日`,
               `${lunar.monthName}${lunar.dayName}`,
-              marks.length ? `倒数日 ${marks.join('、')}` : '',
+              marks.length ? `倒数日 ${marks.map((m) => m.title).join('、')}` : '',
               eventCount ? `${eventCount} 个事件` : '',
             ]
               .filter(Boolean)
@@ -145,13 +153,20 @@ export function MonthGrid({
             {/* 标记行：绝对定位在农历文字下方居中，不影响日期与农历的居中对齐 */}
             {(isTarget || eventCount > 0) && (
               <span className="absolute bottom-1 flex items-center gap-[0.1875rem]">
-                {/* 倒数日：一个小圆点；同日多个也只显示一个，点击当天展开详情 */}
+                {/* 倒数日：一个小圆点；同日多个也只显示一个，点击当天展开详情。
+                    高亮或自定义颜色的条目用更大的实心点 + 自定义色，突出显示 */}
                 {isTarget && (
                   <span
                     aria-hidden
+                    style={!isToday && markColor ? { backgroundColor: markColor } : undefined}
                     className={cn(
-                      'size-1 rounded-full',
-                      isToday ? 'bg-background/90' : 'bg-cal-accent',
+                      'rounded-full',
+                      markHighlight ? 'size-[0.28125rem]' : 'size-1',
+                      isToday
+                        ? 'bg-background/90'
+                        : markColor
+                          ? ''
+                          : 'bg-cal-accent',
                       !inMonth && !isToday && 'opacity-45',
                     )}
                   />
