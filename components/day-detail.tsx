@@ -2,7 +2,8 @@
 
 import { Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { CountdownDisplay, ResolvedCountdown } from '@/lib/countdown'
+import { colorValue, type CountdownDisplay, type ResolvedCountdown } from '@/lib/countdown'
+import { getIcon } from '@/lib/countdown-icons'
 import { getLunar, getWeekOfYear, isSameDay } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +13,8 @@ type Props = {
   today: Date
   events: string[]
   countdowns: ResolvedCountdown[]
+  /** 分类 → 图标 key，条目未设专属图标时回退到分类图标 */
+  categoryIcons: Record<string, string>
   /** 按当前显示单位换算 */
   format: (item: ResolvedCountdown) => CountdownDisplay
   /** 是否显示「第 N 周」 */
@@ -43,6 +46,7 @@ export function DayDetail({
   today,
   events,
   countdowns,
+  categoryIcons,
   format,
   showWeekNumber,
   onOpenCountdown,
@@ -123,22 +127,45 @@ export function DayDetail({
           <div className="flex items-start gap-2">
             <Tag tone="red">倒数</Tag>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              {countdowns.map((c) => (
-                <button
-                  key={c.item.id}
-                  type="button"
-                  onClick={() => onOpenCountdown(c.item.id)}
-                  className="flex w-full items-center gap-2 text-left"
-                >
-                  <span className="border-cal-accent/60 size-[0.4375rem] shrink-0 rounded-full border" />
-                  <span className="min-w-0 truncate text-[length:var(--cal-body-fs)] text-foreground">
-                    {c.item.title}
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-[length:var(--cal-sub-fs)] tabular-nums">
-                    {format(c).text}
-                  </span>
-                </button>
-              ))}
+              {countdowns.map((c) => {
+                const dotColor = colorValue(c.item.color)
+                const Icon = getIcon(c.item.icon ?? categoryIcons[c.item.category])
+                return (
+                  <button
+                    key={c.item.id}
+                    type="button"
+                    onClick={() => onOpenCountdown(c.item.id)}
+                    className="flex w-full items-center gap-2 text-left"
+                  >
+                    {c.item.icon ? (
+                      <Icon
+                        style={dotColor ? { color: dotColor } : undefined}
+                        className={cn('size-3.5 shrink-0', !dotColor && 'text-cal-accent')}
+                        strokeWidth={1.75}
+                      />
+                    ) : (
+                      <span
+                        style={dotColor ? { backgroundColor: dotColor } : undefined}
+                        className={cn(
+                          'size-[0.4375rem] shrink-0 rounded-full border',
+                          dotColor ? 'border-transparent' : 'border-cal-accent/60',
+                        )}
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        'min-w-0 truncate text-[length:var(--cal-body-fs)] text-foreground',
+                        c.item.highlight && 'font-normal',
+                      )}
+                    >
+                      {c.item.title}
+                    </span>
+                    <span className="text-muted-foreground shrink-0 text-[length:var(--cal-sub-fs)] tabular-nums">
+                      {format(c).text}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
