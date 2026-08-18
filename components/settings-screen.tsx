@@ -116,7 +116,9 @@ export function SettingsScreen({
       inert={!open}
       className={cn(
         'fixed inset-0 z-40 mx-auto flex max-w-md flex-col bg-background transition-transform duration-300 ease-out',
-        open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+        // 用 100vw（而非自身宽度的 translate-x-full）位移，确保宽屏下也能完全移出可见区域，
+        // 不会在收起状态下贴着主日历露出一角
+        open ? 'translate-x-0' : 'pointer-events-none translate-x-[100vw]',
       )}
     >
       <header className="border-cal-line flex items-center border-b px-2 py-2.5">
