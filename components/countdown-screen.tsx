@@ -4,32 +4,36 @@ import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Pin,
+  ChevronUp,
+  ListOrdered,
   Plus,
+  RotateCcw,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CountdownForm } from '@/components/countdown-form'
 import { bigNumberStyle } from '@/components/countdown-summary'
-import type {
-  Countdown,
-  CountdownDisplay,
-  CountdownSettings,
-  ResolvedCountdown,
-} from '@/lib/countdown'
 import {
+  colorValue,
+  COLOR_OPTIONS,
+  type Countdown,
+  type CountdownDisplay,
+  type CountdownSettings,
   describeRepeat,
   describeStart,
+  type ResolvedCountdown,
   resolveSettings,
   sortResolved,
   supportsInclusive,
   unitLabel,
 } from '@/lib/countdown'
+import { getIcon, ICON_OPTIONS } from '@/lib/countdown-icons'
 import { getLunar } from '@/lib/lunar'
 import { cn } from '@/lib/utils'
 
-export type ScreenView = 'all' | 'select' | 'add' | 'detail' | 'categories'
+export type ScreenView = 'all' | 'select' | 'add' | 'detail' | 'categories' | 'reorder'
 
 type Props = {
   view: ScreenView | null
@@ -39,18 +43,25 @@ type Props = {
   onClose: () => void
   onOpenAdd: () => void
   onOpenCategories: () => void
+  onOpenReorder: () => void
   onOpenDetail: (id: string) => void
   onPick: (id: string) => void
   onAdd: (item: Omit<Countdown, 'id'>) => void
   onRemove: (id: string) => void
   onFocusDate: (date: Date) => void
-  /** 切换置顶 */
-  onTogglePin: (id: string) => void
+  /** 将选中的条目作为一组，整体上移 / 下移一位 */
+  onMoveItems: (ids: string[], direction: 'up' | 'down') => void
+  /** 恢复为按时间自动排序 */
+  onResetOrder: () => void
   /** 列表排序方向切换 */
   onToggleSort: () => void
   /** 已有分类，用于筛选与新建 */
   categories: string[]
-  onCreateCategory: (name: string) => void
+  /** 分类 → 图标 key */
+  categoryIcons: Record<string, string>
+  onCreateCategory: (name: string, icon: string) => void
+  /** 修改已有分类的图标 */
+  onSetCategoryIcon: (name: string, icon: string) => void
   /** 全局默认单位与起止口径，新建表单与详情用它显示「跟随默认」 */
   settings: CountdownSettings
   /** 按当前显示单位换算 */
@@ -63,6 +74,7 @@ const TITLES: Record<ScreenView, string> = {
   add: '添加倒数日',
   detail: '倒数日详情',
   categories: '管理分类',
+  reorder: '整理顺序',
 }
 
 function UnitBadge({ display }: { display: CountdownDisplay }) {
@@ -100,27 +112,39 @@ export function CountdownScreen({
   onClose,
   onOpenAdd,
   onOpenCategories,
+  onOpenReorder,
   onOpenDetail,
   onPick,
   onAdd,
   onRemove,
   onFocusDate,
-  onTogglePin,
+  onMoveItems,
+  onResetOrder,
   onToggleSort,
   categories,
+  categoryIcons,
   onCreateCategory,
+  onSetCategoryIcon,
   settings,
   format,
 }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [categoryName, setCategoryName] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState(ICON_OPTIONS[ICON_OPTIONS.length - 1].key)
+  const [iconEditFor, setIconEditFor] = useState<string | null>(null)
   const [categoryMessage, setCategoryMessage] = useState('')
   // 分类筛选，空表示全部
   const [filter, setFilter] = useState<string | null>(null)
+  // 排序界面：选中待整体上移/下移的条目
+  const [reorderSelection, setReorderSelection] = useState<string[]>([])
   const visible = filter ? list.filter((r) => r.item.category === filter) : list
   const sorted = sortResolved(visible, settings.sortOrder)
   const detail = list.find((r) => r.item.id === detailId)
   const detailDisplay = detail ? format(detail) : undefined
+
+  useEffect(() => {
+    if (view === 'reorder') setReorderSelection([])
+  }, [view])
   const detailSettings = detail ? resolveSettings(detail.item, settings) : undefined
 
   return (
@@ -163,6 +187,7 @@ export function CountdownScreen({
           <CountdownForm
             defaults={settings}
             categories={categories}
+            categoryIcons={categoryIcons}
             onCreateCategory={onCreateCategory}
             onSubmit={(item) => {
               onAdd(item)
@@ -206,18 +231,39 @@ export function CountdownScreen({
                   管理
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={onToggleSort}
-                className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-[length:var(--cal-label-fs)] font-light"
-              >
-                {settings.sortOrder === 'asc' ? (
-                  <ArrowUpNarrowWide className="size-3.5" strokeWidth={1.5} />
-                ) : (
-                  <ArrowDownWideNarrow className="size-3.5" strokeWidth={1.5} />
-                )}
-                {settings.sortOrder === 'asc' ? '正序' : '倒序'}
-              </button>
+              {view === 'all' ? (
+                <button
+                  type="button"
+                  onClick={onOpenReorder}
+                  className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-[length:var(--cal-label-fs)] font-light"
+                >
+                  <ListOrdered className="size-3.5" strokeWidth={1.5} />
+                  排序
+                </button>
+              ) : null}
+              {settings.sortOrder === 'custom' ? (
+                <button
+                  type="button"
+                  onClick={onResetOrder}
+                  className="text-cal-accent flex shrink-0 items-center gap-0.5 text-[length:var(--cal-label-fs)] font-light"
+                >
+                  <RotateCcw className="size-3.5" strokeWidth={1.5} />
+                  自定义
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onToggleSort}
+                  className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-[length:var(--cal-label-fs)] font-light"
+                >
+                  {settings.sortOrder === 'asc' ? (
+                    <ArrowUpNarrowWide className="size-3.5" strokeWidth={1.5} />
+                  ) : (
+                    <ArrowDownWideNarrow className="size-3.5" strokeWidth={1.5} />
+                  )}
+                  {settings.sortOrder === 'asc' ? '正序' : '倒序'}
+                </button>
+              )}
             </div>
 
             <ul className="px-5">
@@ -228,6 +274,8 @@ export function CountdownScreen({
             ) : null}
             {sorted.map((r) => {
               const isActive = r.item.id === activeId
+              const dotColor = colorValue(r.item.color)
+              const Icon = getIcon(r.item.icon ?? categoryIcons[r.item.category])
               return (
                 <li key={r.item.id} className="border-cal-line border-b">
                   <button
@@ -237,18 +285,31 @@ export function CountdownScreen({
                     }
                     className="flex w-full items-center gap-3 py-[var(--cal-row-py)] text-left transition-colors active:bg-muted/60"
                   >
+                    <Icon
+                      style={dotColor ? { color: dotColor } : undefined}
+                      className={cn('size-4 shrink-0', !dotColor && 'text-muted-foreground')}
+                      strokeWidth={1.5}
+                    />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-1.5">
-                        {r.item.pinned ? (
-                          <Pin
-                            className="text-cal-accent size-3.5 shrink-0"
-                            strokeWidth={1.5}
-                            aria-label="已置顶"
-                          />
-                        ) : null}
-                        <span className="truncate text-[length:var(--cal-body-fs)] font-light text-foreground">
+                        <span
+                          className={cn(
+                            'truncate text-[length:var(--cal-body-fs)] text-foreground',
+                            r.item.highlight ? 'font-normal' : 'font-light',
+                          )}
+                        >
                           {r.item.title}
                         </span>
+                        {r.item.highlight ? (
+                          <span
+                            aria-hidden
+                            style={dotColor ? { backgroundColor: dotColor } : undefined}
+                            className={cn(
+                              'size-1.5 shrink-0 rounded-full',
+                              !dotColor && 'bg-cal-accent',
+                            )}
+                          />
+                        ) : null}
                         <span className="text-cal-faint shrink-0 text-[length:var(--cal-label-fs)]">
                           {r.item.calendar === 'lunar' ? '农历' : '公历'}
                         </span>
@@ -279,65 +340,199 @@ export function CountdownScreen({
         {view === 'categories' ? (
           <div className="flex flex-col px-5 pb-6">
             <p className="text-muted-foreground py-4 text-[0.875rem] leading-relaxed font-light">
-              分类用于筛选倒数日。新建后会立即出现在添加表单和列表筛选中。
+              分类用于筛选倒数日。点击图标可单独修改，新建的分类会立即出现在添加表单和列表筛选中。
             </p>
             <ul className="border-cal-line border-t">
               {categories.map((name) => {
                 const count = list.filter((entry) => entry.item.category === name).length
+                const CategoryIcon = getIcon(categoryIcons[name])
+                const editing = iconEditFor === name
                 return (
-                  <li
-                    key={name}
-                    className="border-cal-line flex items-center justify-between border-b py-3.5"
-                  >
-                    <span className="text-[1rem] font-light text-foreground">{name}</span>
-                    <span className="text-cal-faint text-[0.8125rem] font-light">
-                      {count} 个倒数日
-                    </span>
+                  <li key={name} className="border-cal-line border-b">
+                    <div className="flex items-center justify-between gap-3 py-3.5">
+                      <button
+                        type="button"
+                        onClick={() => setIconEditFor(editing ? null : name)}
+                        aria-expanded={editing}
+                        aria-label={`修改「${name}」的图标`}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                      >
+                        <span className="border-cal-line text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full border">
+                          <CategoryIcon className="size-4" strokeWidth={1.5} />
+                        </span>
+                        <span className="truncate text-[1rem] font-light text-foreground">
+                          {name}
+                        </span>
+                      </button>
+                      <span className="text-cal-faint shrink-0 text-[0.8125rem] font-light">
+                        {count} 个倒数日
+                      </span>
+                    </div>
+                    {editing ? (
+                      <div className="flex flex-wrap gap-1.5 pb-3.5">
+                        {ICON_OPTIONS.map((option) => {
+                          const on = categoryIcons[name] === option.key
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              aria-pressed={on}
+                              aria-label={option.label}
+                              onClick={() => onSetCategoryIcon(name, option.key)}
+                              className={cn(
+                                'flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors',
+                                on
+                                  ? 'border-transparent bg-foreground text-background'
+                                  : 'border-cal-line text-muted-foreground',
+                              )}
+                            >
+                              <option.Icon className="size-4" strokeWidth={1.5} />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}
             </ul>
-            <div className="flex items-center gap-2 py-5">
-              <input
-                aria-label="新分类名称"
-                value={categoryName}
-                onChange={(event) => {
-                  setCategoryName(event.target.value)
-                  setCategoryMessage('')
-                }}
-                onKeyDown={(event) => {
-                  if (event.nativeEvent.isComposing || event.keyCode === 229) return
-                  if (event.key !== 'Enter') return
-                  const name = categoryName.trim()
-                  if (!name) return setCategoryMessage('请输入分类名称')
-                  if (categories.includes(name)) return setCategoryMessage('该分类已存在')
-                  onCreateCategory(name)
-                  setCategoryName('')
-                  setCategoryMessage(`已新建“${name}”`)
-                }}
-                placeholder="输入新分类，如：健身"
-                className="border-cal-line min-w-0 flex-1 rounded-full border bg-transparent px-3 py-2.5 text-[0.9375rem] font-light text-foreground outline-none placeholder:text-cal-faint"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const name = categoryName.trim()
-                  if (!name) return setCategoryMessage('请输入分类名称')
-                  if (categories.includes(name)) return setCategoryMessage('该分类已存在')
-                  onCreateCategory(name)
-                  setCategoryName('')
-                  setCategoryMessage(`已新建“${name}”`)
-                }}
-                className="border-cal-line shrink-0 rounded-full border px-4 py-2.5 text-[0.875rem] font-light text-foreground"
-              >
-                新建
-              </button>
+            <div className="flex flex-col gap-2.5 py-5">
+              <div className="flex flex-wrap gap-1.5">
+                {ICON_OPTIONS.map((option) => {
+                  const on = newCategoryIcon === option.key
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      aria-pressed={on}
+                      aria-label={option.label}
+                      onClick={() => setNewCategoryIcon(option.key)}
+                      className={cn(
+                        'flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors',
+                        on
+                          ? 'border-transparent bg-foreground text-background'
+                          : 'border-cal-line text-muted-foreground',
+                      )}
+                    >
+                      <option.Icon className="size-4" strokeWidth={1.5} />
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  aria-label="新分类名称"
+                  value={categoryName}
+                  onChange={(event) => {
+                    setCategoryName(event.target.value)
+                    setCategoryMessage('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                    if (event.key !== 'Enter') return
+                    const name = categoryName.trim()
+                    if (!name) return setCategoryMessage('请输入分类名称')
+                    if (categories.includes(name)) return setCategoryMessage('该分类已存在')
+                    onCreateCategory(name, newCategoryIcon)
+                    setCategoryName('')
+                    setCategoryMessage(`已新建“${name}”`)
+                  }}
+                  placeholder="输入新分类，如：健身"
+                  className="border-cal-line min-w-0 flex-1 rounded-full border bg-transparent px-3 py-2.5 text-[0.9375rem] font-light text-foreground outline-none placeholder:text-cal-faint"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = categoryName.trim()
+                    if (!name) return setCategoryMessage('请输入分类名称')
+                    if (categories.includes(name)) return setCategoryMessage('该分类已存在')
+                    onCreateCategory(name, newCategoryIcon)
+                    setCategoryName('')
+                    setCategoryMessage(`已新建“${name}”`)
+                  }}
+                  className="border-cal-line shrink-0 rounded-full border px-4 py-2.5 text-[0.875rem] font-light text-foreground"
+                >
+                  新建
+                </button>
+              </div>
             </div>
             {categoryMessage ? (
               <p role="status" className="text-cal-faint text-[0.8125rem] font-light">
                 {categoryMessage}
               </p>
             ) : null}
+          </div>
+        ) : null}
+
+        {view === 'reorder' ? (
+          <div className="flex flex-col">
+            <p className="text-muted-foreground px-5 py-4 text-[0.875rem] leading-relaxed font-light">
+              勾选后用「上移 / 下移」整体调整顺序；排好的顺序会替代按时间自动排序。
+            </p>
+            <div className="border-cal-line flex items-center justify-between gap-3 border-y px-5 py-2.5">
+              <span className="text-cal-faint text-[0.8125rem] font-light">
+                {reorderSelection.length > 0 ? `已选 ${reorderSelection.length} 项` : '未选择'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={reorderSelection.length === 0}
+                  onClick={() => onMoveItems(reorderSelection, 'up')}
+                  aria-label="上移所选"
+                  className="border-cal-line text-foreground flex size-8 items-center justify-center rounded-full border disabled:opacity-30"
+                >
+                  <ChevronUp className="size-4" strokeWidth={1.5} />
+                </button>
+                <button
+                  type="button"
+                  disabled={reorderSelection.length === 0}
+                  onClick={() => onMoveItems(reorderSelection, 'down')}
+                  aria-label="下移所选"
+                  className="border-cal-line text-foreground flex size-8 items-center justify-center rounded-full border disabled:opacity-30"
+                >
+                  <ChevronDown className="size-4" strokeWidth={1.5} />
+                </button>
+              </div>
+            </div>
+            <ul className="px-5">
+              {list.map((r) => {
+                const checked = reorderSelection.includes(r.item.id)
+                const Icon = getIcon(r.item.icon ?? categoryIcons[r.item.category])
+                return (
+                  <li key={r.item.id} className="border-cal-line border-b">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReorderSelection((prev) =>
+                          checked ? prev.filter((id) => id !== r.item.id) : [...prev, r.item.id],
+                        )
+                      }
+                      aria-pressed={checked}
+                      className="flex w-full items-center gap-3 py-3 text-left"
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                          checked
+                            ? 'border-transparent bg-foreground text-background'
+                            : 'border-cal-line text-transparent',
+                        )}
+                      >
+                        <Check className="size-3.5" strokeWidth={2} />
+                      </span>
+                      <Icon className="text-muted-foreground size-4 shrink-0" strokeWidth={1.5} />
+                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-light text-foreground">
+                        {r.item.title}
+                      </span>
+                      <span className="text-cal-faint shrink-0 text-[length:var(--cal-label-fs)] font-light">
+                        {r.item.category}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         ) : null}
 
@@ -386,7 +581,14 @@ export function CountdownScreen({
                 ['农历日期', detail.lunarText],
                 ['星期', ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][detail.target.getDay()]],
                 ['节日 / 节气', getLunar(detail.target).highlight ? getLunar(detail.target).label : '—'],
-                ['置顶', detail.item.pinned ? '是' : '否'],
+                ['高亮突出', detail.item.highlight ? '是' : '否'],
+                [
+                  '颜色',
+                  detail.item.color
+                    ? (COLOR_OPTIONS.find((c) => c.key === detail.item.color)?.label ?? '默认')
+                    : '默认',
+                ],
+                ['图标', detail.item.icon ? '已自定义' : `跟随分类「${detail.item.category}」`],
                 [
                   '显示单位',
                   detail.item.unit
@@ -399,7 +601,9 @@ export function CountdownScreen({
                     ? detailSettings.inclusive
                       ? '自然日 · 包含起止日期'
                       : '自然日 · 不包含起止日期'
-                    : '目标时刻 · 精确计算',
+                    : detailSettings?.precise
+                      ? '精确到当前时刻'
+                      : '目标时刻 · 精确计算',
                 ],
               ].map(([k, v]) => (
                 <div key={k} className="border-cal-line flex items-center justify-between border-b py-3.5">
@@ -410,20 +614,6 @@ export function CountdownScreen({
             </dl>
 
             <div className="flex flex-col gap-3 py-6">
-              <button
-                type="button"
-                onClick={() => onTogglePin(detail.item.id)}
-                aria-pressed={Boolean(detail.item.pinned)}
-                className={cn(
-                  'flex h-11 items-center justify-center gap-1.5 rounded-full border text-[1.0625rem] font-light transition-colors',
-                  detail.item.pinned
-                    ? 'border-transparent bg-foreground text-background'
-                    : 'border-cal-line text-foreground active:bg-muted',
-                )}
-              >
-                <Pin className="size-4" strokeWidth={1.5} />
-                {detail.item.pinned ? '取消置顶' : '置顶到首页'}
-              </button>
               <button
                 type="button"
                 onClick={() => {
