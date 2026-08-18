@@ -23,6 +23,7 @@ import {
   resolveSettings,
   sortResolved,
 } from '@/lib/countdown'
+import { DEFAULT_CATEGORY_ICONS, FALLBACK_ICON_KEY } from '@/lib/countdown-icons'
 import { dateKey, getWeekOfYear, isSameDay } from '@/lib/lunar'
 import {
   DEFAULT_PREFERENCES,
@@ -44,7 +45,6 @@ const INITIAL_COUNTDOWNS: Countdown[] = [
     day: 7,
     repeat: YEARLY,
     category: '纪念日',
-    pinned: true,
   },
   {
     id: 'c2',
@@ -107,6 +107,7 @@ export function CalendarApp() {
   const [events, setEvents] = useState<Record<string, string[]>>(() => ({}))
   const [countdowns, setCountdowns] = useState<Countdown[]>(INITIAL_COUNTDOWNS)
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
+  const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>(DEFAULT_CATEGORY_ICONS)
   const [activeId, setActiveId] = useState(INITIAL_COUNTDOWNS[0]?.id)
   const [screen, setScreen] = useState<ScreenView | null>(null)
   const [detailId, setDetailId] = useState<string>()
@@ -143,22 +144,54 @@ export function CalendarApp() {
     setSettings((prev) => ({ ...prev, inclusive: !prev.inclusive }))
   }
 
-  /** 列表排序方向 */
+  /** 列表排序方向（自定义 → 正序，其余在正序 / 倒序之间切换） */
   function toggleSortOrder() {
-    setSettings((prev) => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))
+    setSettings((prev) => ({
+      ...prev,
+      sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc',
+    }))
   }
 
-  /** 置顶 / 取消置顶；新置顶的条目立即成为首页当前目标 */
-  function togglePin(id: string) {
+  /** 恢复为按时间自动排序 */
+  function resetOrder() {
+    setSettings((prev) => ({ ...prev, sortOrder: 'asc' }))
+  }
+
+  /**
+   * 将选中的一组条目整体上移 / 下移一位，并切换到自定义排序。
+   * 顺序直接来自 countdowns 数组，因此调整数组即调整显示顺序。
+   */
+  function moveItems(ids: string[], direction: 'up' | 'down') {
+    if (ids.length === 0) return
+    setSettings((prev) => (prev.sortOrder === 'custom' ? prev : { ...prev, sortOrder: 'custom' }))
     setCountdowns((prev) => {
-      const willPin = !prev.find((item) => item.id === id)?.pinned
-      if (willPin) setActiveId(id)
-      return prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
+      const idSet = new Set(ids)
+      const next = [...prev]
+      if (direction === 'up') {
+        for (let i = 1; i < next.length; i++) {
+          if (idSet.has(next[i].id) && !idSet.has(next[i - 1].id)) {
+            ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+          }
+        }
+      } else {
+        for (let i = next.length - 2; i >= 0; i--) {
+          if (idSet.has(next[i].id) && !idSet.has(next[i + 1].id)) {
+            ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
+          }
+        }
+      }
+      return next
     })
   }
 
-  function createCategory(name: string) {
+  function createCategory(name: string, icon: string = FALLBACK_ICON_KEY) {
     setCategories((prev) => (prev.includes(name) ? prev : [...prev, name]))
+    setCategoryIcons((prev) => ({ ...prev, [name]: icon }))
+  }
+
+  /** 修改已有分类的图标 */
+  function setCategoryIcon(name: string, icon: string) {
+    setCategoryIcons((prev) => ({ ...prev, [name]: icon }))
   }
 
   /** 摘要区改的是当前目标这一条的单位 */
@@ -214,12 +247,15 @@ export function CalendarApp() {
   // 当前目标实际生效的单位与起止口径（条目自带的优先）
   const activeSettings = active ? resolveSettings(active.item, settings) : settings
 
-  /** 倒数日目标日 → 名称（同一天可有多个） */
-  const countdownTitles = useMemo(() => {
-    const map = new Map<string, string[]>()
+  /** 倒数日目标日 → 落在该日的条目（同一天可有多个），供月历取名称/颜色/高亮 */
+  const countdownMarks = useMemo(() => {
+    const map = new Map<string, { title: string; color?: string; highlight?: boolean }[]>()
     for (const r of resolved) {
       const key = dateKey(r.target)
-      map.set(key, [...(map.get(key) ?? []), r.item.title])
+      map.set(key, [
+        ...(map.get(key) ?? []),
+        { title: r.item.title, color: r.item.color, highlight: r.item.highlight },
+      ])
     }
     return map
   }, [resolved])
@@ -239,7 +275,7 @@ export function CalendarApp() {
   function shiftMonth(delta: number) {
     setCursor((prev) => {
       const next = new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
-      // 超出农历历表范围时保���原位，避免出现「undefined月」
+      // 超出农历历表范围时保持原位，避免出现「undefined月」
       if (next.getFullYear() < MIN_YEAR || next.getFullYear() > MAX_YEAR) return prev
       return next
     })
@@ -312,7 +348,7 @@ export function CalendarApp() {
       data-density={preferences.density}
       className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background pt-2"
     >
-      {/* 顶部：年/月·周 与月份切��� */}
+      {/* 顶部：年/月·周 与月份切换 */}
       <header className="flex items-center justify-between px-5 py-1">
         <button
           type="button"
@@ -388,6 +424,7 @@ export function CalendarApp() {
           today={today}
           events={events[dateKey(selected)] ?? []}
           countdowns={selectedCountdowns}
+          categoryIcons={categoryIcons}
           format={format}
           showWeekNumber={preferences.showWeekNumber}
           onOpenCountdown={(id) => {
@@ -403,7 +440,7 @@ export function CalendarApp() {
           today={today}
           selected={selected}
           eventCounts={eventCounts}
-          countdownTitles={countdownTitles}
+          countdownMarks={countdownMarks}
           dimmed={detailOpen}
           preferences={preferences}
           onSelect={handleSelect}
@@ -424,6 +461,7 @@ export function CalendarApp() {
         active={active}
         display={active ? format(active) : undefined}
         itemSettings={activeSettings}
+        categoryIcons={categoryIcons}
         total={countdowns.length}
         onChangeUnit={changeItemUnit}
         onToggleInclusive={toggleItemInclusive}
@@ -494,6 +532,7 @@ export function CalendarApp() {
         }}
         onOpenAdd={() => setScreen('add')}
         onOpenCategories={() => setScreen('categories')}
+        onOpenReorder={() => setScreen('reorder')}
         onOpenDetail={(id) => {
           setDetailId(id)
           setScreen('detail')
@@ -505,10 +544,13 @@ export function CalendarApp() {
         onAdd={addCountdown}
         onRemove={removeCountdown}
         onFocusDate={focusDate}
-        onTogglePin={togglePin}
+        onMoveItems={moveItems}
+        onResetOrder={resetOrder}
         onToggleSort={toggleSortOrder}
         categories={categories}
+        categoryIcons={categoryIcons}
         onCreateCategory={createCategory}
+        onSetCategoryIcon={setCategoryIcon}
         settings={settings}
         format={format}
       />
