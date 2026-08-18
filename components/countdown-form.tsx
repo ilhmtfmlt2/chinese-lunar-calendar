@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Check, X } from 'lucide-react'
+import { Fragment, useMemo, useState } from 'react'
 import type {
   CalendarType,
   Countdown,
@@ -9,6 +10,8 @@ import type {
   RepeatFreq,
 } from '@/lib/countdown'
 import {
+  COLOR_OPTIONS,
+  colorValue,
   describeRepeat,
   REPEAT_OPTIONS,
   supportsInclusive,
@@ -16,11 +19,13 @@ import {
   unitLabel,
   WEEKDAY_NAMES,
 } from '@/lib/countdown'
+import { FALLBACK_ICON_KEY, getIcon, ICON_OPTIONS } from '@/lib/countdown-icons'
 import {
   dateKey,
   getLunar,
   LUNAR_MONTH_NAMES,
   lunarDayNames,
+  lunarLeapMonth,
   lunarMonthDays,
   lunarToSolar,
 } from '@/lib/lunar'
@@ -31,13 +36,17 @@ type Props = {
   defaults: CountdownSettings
   /** 已有分类，可直接选，也可新增 */
   categories: string[]
-  onCreateCategory: (name: string) => void
+  /** 分类 → 图标 key，用于选择分类时展示 */
+  categoryIcons: Record<string, string>
+  onCreateCategory: (name: string, icon: string) => void
   onSubmit: (item: Omit<Countdown, 'id'>) => void
   onCancel: () => void
 }
 
 /** 空字符串代表跟随全局默认 */
 type UnitChoice = CountdownUnit | ''
+/** 三态：'' 跟随默认，'on' 强制开，'off' 强制关 */
+type TriChoice = '' | 'on' | 'off'
 
 const LABEL = 'text-muted-foreground w-[4.5rem] shrink-0 text-[0.9375rem] font-light'
 const ROW = 'border-cal-line flex items-center gap-3 border-b py-4'
@@ -62,9 +71,66 @@ function Switch({ on }: { on: boolean }) {
   )
 }
 
+/** 紧凑图标按钮 + 弹出网格，用于新建分类时快速选一个图标 */
+function IconPickerButton({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (key: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const CurrentIcon = getIcon(value)
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="选择图标"
+        className="border-cal-line text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full border"
+      >
+        <CurrentIcon className="size-4" strokeWidth={1.5} />
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="border-cal-line absolute top-full left-0 z-30 mt-1.5 grid w-48 grid-cols-6 gap-1 rounded-xl border bg-background p-2 shadow-lg"
+        >
+          {ICON_OPTIONS.map((option) => {
+            const on = option.key === value
+            return (
+              <button
+                key={option.key}
+                type="button"
+                role="menuitemradio"
+                aria-checked={on}
+                aria-label={option.label}
+                onClick={() => {
+                  onChange(option.key)
+                  setOpen(false)
+                }}
+                className={cn(
+                  'flex size-7 items-center justify-center rounded-full transition-colors',
+                  on ? 'bg-foreground text-background' : 'text-muted-foreground active:bg-muted',
+                )}
+              >
+                <option.Icon className="size-4" strokeWidth={1.5} />
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function CountdownForm({
   defaults,
   categories,
+  categoryIcons,
   onCreateCategory,
   onSubmit,
   onCancel,
@@ -78,27 +144,36 @@ export function CountdownForm({
   const [solar, setSolar] = useState(() => dateKey(today))
   const [lYear, setLYear] = useState(todayLunar.year)
   const [lMonth, setLMonth] = useState(todayLunar.month)
+  const [lIsLeap, setLIsLeap] = useState(false)
   const [lDay, setLDay] = useState(todayLunar.day)
   const [time, setTime] = useState('')
-  // 重复：频率 + 间隔 +（按周时）星期
+  // 重复：频率 + 间隔 +（按周时）星期 + 结束日期
   const [freq, setFreq] = useState<RepeatFreq>('none')
   const [interval, setIntervalValue] = useState(1)
   const [weekdays, setWeekdays] = useState<number[]>([])
+  const [until, setUntil] = useState('')
   const [category, setCategory] = useState(categories[0] ?? '生活')
   const [newCategory, setNewCategory] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState(FALLBACK_ICON_KEY)
   const [categoryMessage, setCategoryMessage] = useState('')
-  const [pinned, setPinned] = useState(false)
   const [unit, setUnit] = useState<UnitChoice>('')
   const [inclusive, setInclusive] = useState(defaults.inclusive)
+  const [precise, setPrecise] = useState<TriChoice>('')
+  const [highlight, setHighlight] = useState(false)
+  const [color, setColor] = useState('')
+  const [icon, setIcon] = useState('')
 
-  const maxLunarDay = lunarMonthDays(lYear, lMonth)
+  // 闰月不是每年都有：如果换了年份导致原来选的闰月不再存在，自动退回平月
+  const yearLeapMonth = lunarLeapMonth(lYear)
+  const safeIsLeap = lIsLeap && yearLeapMonth === lMonth
+  const maxLunarDay = lunarMonthDays(lYear, lMonth, safeIsLeap)
   const safeLDay = Math.min(lDay, maxLunarDay)
   const startDate = useMemo(() => {
-    if (calendar === 'lunar') return lunarToSolar(lYear, lMonth, safeLDay)
+    if (calendar === 'lunar') return lunarToSolar(lYear, lMonth, safeLDay, safeIsLeap)
     const [y, m, d] = solar.split('-').map(Number)
     if (!y || !m || !d) return null
     return new Date(y, m - 1, d)
-  }, [calendar, lYear, lMonth, safeLDay, solar])
+  }, [calendar, lYear, lMonth, safeIsLeap, safeLDay, solar])
 
   const repeatUnit = REPEAT_OPTIONS.find((o) => o.key === freq)?.unit ?? ''
   const effectiveUnit = unit || defaults.unit
@@ -113,7 +188,7 @@ export function CountdownForm({
     if (!startDate) return null
     const base =
       calendar === 'lunar'
-        ? { year: lYear, month: lMonth, day: safeLDay }
+        ? { year: lYear, month: lMonth, day: safeLDay, isLeap: safeIsLeap }
         : {
             year: startDate.getFullYear(),
             month: startDate.getMonth() + 1,
@@ -125,9 +200,13 @@ export function CountdownForm({
       calendar,
       ...base,
       time: time || undefined,
-      repeat: { freq, interval, weekdays: freq === 'week' ? weekdays : undefined },
+      repeat: {
+        freq,
+        interval,
+        weekdays: freq === 'week' ? weekdays : undefined,
+        until: freq !== 'none' ? until || undefined : undefined,
+      },
       category,
-      pinned,
     }
   }, [
     calendar,
@@ -136,11 +215,12 @@ export function CountdownForm({
     interval,
     lMonth,
     lYear,
-    pinned,
+    safeIsLeap,
     safeLDay,
     startDate,
     time,
     title,
+    until,
     weekdays,
   ])
 
@@ -163,9 +243,10 @@ export function CountdownForm({
       setCategoryMessage('该分类已存在，已为你选中')
       return
     }
-    onCreateCategory(name)
+    onCreateCategory(name, newCategoryIcon)
     setCategory(name)
     setNewCategory('')
+    setNewCategoryIcon(FALLBACK_ICON_KEY)
     setCategoryMessage(`已新建并选中“${name}”`)
   }
 
@@ -178,14 +259,26 @@ export function CountdownForm({
         freq,
         interval: Math.min(99, Math.max(1, Math.floor(interval || 1))),
         ...(freq === 'week' && weekdays.length ? { weekdays } : {}),
+        ...(freq !== 'none' && until ? { until } : {}),
       },
       category,
-      ...(pinned ? { pinned } : {}),
       ...(unit ? { unit } : {}),
       ...(canIncludeEndpoints && inclusive !== defaults.inclusive ? { inclusive } : {}),
+      ...(precise ? { precise: precise === 'on' } : {}),
+      ...(highlight ? { highlight } : {}),
+      ...(color ? { color } : {}),
+      ...(icon ? { icon } : {}),
     }
     if (calendar === 'lunar') {
-      onSubmit({ title: name, calendar, year: lYear, month: lMonth, day: safeLDay, ...extra })
+      onSubmit({
+        title: name,
+        calendar,
+        year: lYear,
+        month: lMonth,
+        day: safeLDay,
+        ...(safeIsLeap ? { isLeap: true } : {}),
+        ...extra,
+      })
       return
     }
     onSubmit({
@@ -248,13 +341,13 @@ export function CountdownForm({
           />
         </label>
       ) : (
-        <div className={ROW}>
-          <span className={LABEL}>开始日期</span>
-          <div className="flex min-w-0 flex-1 items-center gap-1">
+        <div className="border-cal-line flex flex-col gap-2 border-b py-4">
+          <span className={cn(LABEL, 'w-auto')}>开始日期</span>
+          <div className="flex min-w-0 items-center gap-2">
             <select
               value={lYear}
               onChange={(e) => setLYear(Number(e.target.value))}
-              className={cn(FIELD, 'tabular-nums')}
+              className={cn(FIELD, 'flex-[1.2] text-left tabular-nums')}
             >
               {Array.from({ length: 12 }, (_, i) => todayLunar.year - 1 + i).map((y) => (
                 <option key={y} value={y}>
@@ -263,20 +356,30 @@ export function CountdownForm({
               ))}
             </select>
             <select
-              value={lMonth}
-              onChange={(e) => setLMonth(Number(e.target.value))}
-              className={FIELD}
+              value={`${lMonth}${safeIsLeap ? 'L' : ''}`}
+              onChange={(e) => {
+                const isLeap = e.target.value.endsWith('L')
+                setLMonth(Number.parseInt(e.target.value, 10))
+                setLIsLeap(isLeap)
+              }}
+              className={cn(FIELD, 'text-left')}
             >
-              {LUNAR_MONTH_NAMES.map((name, i) => (
-                <option key={name} value={i + 1}>
-                  {name}
-                </option>
-              ))}
+              {LUNAR_MONTH_NAMES.map((name, i) => {
+                const month = i + 1
+                return (
+                  <Fragment key={name}>
+                    <option value={month}>{name}</option>
+                    {yearLeapMonth === month ? (
+                      <option value={`${month}L`}>{`闰${name}`}</option>
+                    ) : null}
+                  </Fragment>
+                )
+              })}
             </select>
             <select
               value={safeLDay}
               onChange={(e) => setLDay(Number(e.target.value))}
-              className={FIELD}
+              className={cn(FIELD, 'text-left')}
             >
               {lunarDayNames(maxLunarDay).map((name, i) => (
                 <option key={name} value={i + 1}>
@@ -379,6 +482,34 @@ export function CountdownForm({
         </div>
       ) : null}
 
+      {/* 重复结束日期：留空为一直重复下去 */}
+      {freq !== 'none' ? (
+        <div className={ROW}>
+          <span className={LABEL}>结束重复</span>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            {!until ? (
+              <span className="text-muted-foreground text-[0.9375rem] font-light">永不</span>
+            ) : null}
+            <input
+              aria-label="结束重复日期"
+              type="date"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+              className="w-[8.5rem] bg-transparent text-right text-[1.0625rem] font-light tabular-nums text-foreground outline-none"
+            />
+            {until ? (
+              <button
+                type="button"
+                onClick={() => setUntil('')}
+                className="text-cal-faint shrink-0 text-[0.8125rem] font-light"
+              >
+                改为永不
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {/* 分类：直接显示已有分类，新建后自动选中 */}
       <div className="border-cal-line flex flex-col gap-3 border-b py-4">
         <div className="flex items-center justify-between gap-3">
@@ -388,6 +519,7 @@ export function CountdownForm({
         <div className="flex flex-wrap gap-1.5">
           {categories.map((name) => {
             const active = category === name
+            const CategoryIcon = getIcon(categoryIcons[name])
             return (
               <button
                 key={name}
@@ -398,18 +530,20 @@ export function CountdownForm({
                   setCategoryMessage('')
                 }}
                 className={cn(
-                  'border-cal-line rounded-full border px-3 py-1 text-[0.8125rem] font-light transition-colors',
+                  'border-cal-line flex items-center gap-1 rounded-full border px-3 py-1 text-[0.8125rem] font-light transition-colors',
                   active
                     ? 'border-transparent bg-foreground text-background'
                     : 'text-muted-foreground',
                 )}
               >
+                <CategoryIcon className="size-3.5" strokeWidth={1.5} />
                 {name}
               </button>
             )
           })}
         </div>
         <div className="flex items-center gap-2">
+          <IconPickerButton value={newCategoryIcon} onChange={setNewCategoryIcon} />
           <input
             aria-label="新分类名称"
             value={newCategory}
@@ -438,21 +572,6 @@ export function CountdownForm({
           </p>
         ) : null}
       </div>
-
-      <button
-        type="button"
-        onClick={() => setPinned((v) => !v)}
-        aria-pressed={pinned}
-        className="border-cal-line flex items-center justify-between gap-3 border-b py-4 text-left"
-      >
-        <span className="flex flex-col gap-0.5">
-          <span className="text-[1.0625rem] font-light text-foreground">置顶</span>
-          <span className="text-cal-faint text-[0.8125rem] font-light">
-            排在列表最前，并优先显示在首页
-          </span>
-        </span>
-        <Switch on={pinned} />
-      </button>
 
       {/* 显示单位：留空则跟随设置里的默认单位 */}
       <label className={ROW}>
@@ -494,6 +613,121 @@ export function CountdownForm({
           </span>
         </div>
       )}
+
+      {/* 精确到当前时刻：只对小时 / 分钟这类单位有意义，天数向来是按自然日算 */}
+      {effectiveUnit === 'hour' || effectiveUnit === 'minute' ? (
+        <label className={ROW}>
+          <span className={LABEL}>精确时刻</span>
+          <select
+            value={precise}
+            onChange={(e) => setPrecise(e.target.value as TriChoice)}
+            className={FIELD}
+          >
+            <option value="">跟随默认（{defaults.precise ? '开' : '关'}）</option>
+            <option value="on">开 · 精确到当前时刻</option>
+            <option value="off">关 · 从今天 00:00 起算</option>
+          </select>
+        </label>
+      ) : null}
+
+      {/* 高亮突出：不改变排序，只在列表与日历里更醒目 */}
+      <button
+        type="button"
+        onClick={() => setHighlight((v) => !v)}
+        aria-pressed={highlight}
+        className="border-cal-line flex items-center justify-between gap-3 border-b py-4 text-left"
+      >
+        <span className="flex flex-col gap-0.5">
+          <span className="text-[1.0625rem] font-light text-foreground">高亮突出</span>
+          <span className="text-cal-faint text-[0.8125rem] font-light">
+            在列表与日历中更醒目地展示这一条
+          </span>
+        </span>
+        <Switch on={highlight} />
+      </button>
+
+      {/* 颜色：条目专属强调色，用于列表标记点与日历圆点 */}
+      <div className="border-cal-line flex items-center gap-3 border-b py-4">
+        <span className={LABEL}>颜色</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            aria-pressed={color === ''}
+            aria-label="跟随默认颜色"
+            onClick={() => setColor('')}
+            className={cn(
+              'border-cal-line flex size-7 shrink-0 items-center justify-center rounded-full border',
+              color === '' ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background' : '',
+            )}
+          >
+            {color === '' ? <Check className="text-foreground size-3.5" strokeWidth={2} /> : null}
+          </button>
+          {COLOR_OPTIONS.map((option) => {
+            const on = color === option.key
+            return (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={on}
+                aria-label={option.label}
+                onClick={() => setColor(option.key)}
+                style={{ backgroundColor: option.value }}
+                className={cn(
+                  'flex size-7 shrink-0 items-center justify-center rounded-full transition-transform',
+                  on ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background' : '',
+                )}
+              >
+                {on ? <Check className="size-3.5 text-background" strokeWidth={2} /> : null}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 图标：条目专属图标，不填则回退到所属分类的图标 */}
+      <div className="border-cal-line flex flex-col gap-2.5 border-b py-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className={LABEL}>图标</span>
+          <span className="text-cal-faint text-[0.8125rem] font-light">
+            不选则使用分类图标
+          </span>
+        </div>
+        <div className="-mx-5 flex gap-1.5 overflow-x-auto px-5">
+          <button
+            type="button"
+            aria-pressed={icon === ''}
+            onClick={() => setIcon('')}
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full border text-[0.6875rem] font-light transition-colors',
+              icon === ''
+                ? 'border-transparent bg-foreground text-background'
+                : 'border-cal-line text-muted-foreground',
+            )}
+          >
+            <X className="size-4" strokeWidth={1.5} />
+          </button>
+          {ICON_OPTIONS.map((option) => {
+            const on = icon === option.key
+            return (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={on}
+                aria-label={option.label}
+                onClick={() => setIcon(option.key)}
+                className={cn(
+                  'flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors',
+                  on
+                    ? 'border-transparent bg-foreground text-background'
+                    : 'border-cal-line text-muted-foreground',
+                )}
+              >
+                <option.Icon className="size-4" strokeWidth={1.5} />
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       <p className="text-muted-foreground py-4 text-[0.8125rem] leading-relaxed font-light tabular-nums">
         换算：{preview}
