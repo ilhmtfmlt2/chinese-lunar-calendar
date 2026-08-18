@@ -2,6 +2,7 @@ import {
   dateKey,
   daysBetween,
   getLunar,
+  lunarLeapMonth,
   lunarMonthDays,
   lunarToSolar,
   toChineseDayName,
@@ -22,6 +23,8 @@ export type Repeat = {
   interval: number
   /** 仅 freq='week' 有效：在周几重复（0=周日）；留空则用开始日期的星期 */
   weekdays?: number[]
+  /** 重复的结束日期（公历，YYYY-MM-DD）；超过这天不再顺延到下一次 */
+  until?: string
 }
 
 export const NO_REPEAT: Repeat = { freq: 'none', interval: 1 }
@@ -38,6 +41,22 @@ export const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', 
 
 export const DEFAULT_CATEGORIES = ['生活', '工作', '纪念日', '节日', '其他']
 
+/** 条目强调色调色板：与系统的 cal-accent / cal-event 同一色系延伸，保持整体协调 */
+export const COLOR_OPTIONS: { key: string; label: string; value: string }[] = [
+  { key: 'red', label: '红', value: 'oklch(0.635 0.215 26)' },
+  { key: 'orange', label: '橙', value: 'oklch(0.76 0.16 66)' },
+  { key: 'yellow', label: '黄', value: 'oklch(0.82 0.15 95)' },
+  { key: 'green', label: '绿', value: 'oklch(0.65 0.15 142)' },
+  { key: 'teal', label: '青', value: 'oklch(0.62 0.1 200)' },
+  { key: 'blue', label: '蓝', value: 'oklch(0.58 0.14 250)' },
+  { key: 'purple', label: '紫', value: 'oklch(0.56 0.17 300)' },
+  { key: 'pink', label: '粉', value: 'oklch(0.68 0.16 350)' },
+]
+
+export function colorValue(key?: string) {
+  return COLOR_OPTIONS.find((c) => c.key === key)?.value
+}
+
 export type Countdown = {
   id: string
   title: string
@@ -46,18 +65,26 @@ export type Countdown = {
   year: number
   month: number
   day: number
+  /** 仅 calendar='lunar' 有效：month 是否为闰月 */
+  isLeap?: boolean
   /** 当天时刻 HH:mm；不填按整天处理（当天不算已过） */
   time?: string
   /** 重复规则 */
   repeat: Repeat
   /** 分类名，可为预设或自定义 */
   category: string
-  /** 置顶：排在列表最前，并优先显示在首页 */
-  pinned?: boolean
   /** 该条目专属的显示单位；不填则跟随设置里的默认单位 */
   unit?: CountdownUnit
   /** 该条目是否把起止两天都算进去；不填则跟随默认 */
   inclusive?: boolean
+  /** 该条目是否精确到当前时刻（仅影响小时/分钟）；不填则跟随默认 */
+  precise?: boolean
+  /** 高亮突出：在列表与日历中更醒目地展示 */
+  highlight?: boolean
+  /** 该条目的强调色，取值为 COLOR_OPTIONS 的 key；不填则使用系统默认强调色 */
+  color?: string
+  /** 该条目的图标，取值为图标注册表的 key；不填则回退到分类图标 */
+  icon?: string
 }
 
 export type ResolvedCountdown = {
@@ -100,6 +127,14 @@ function parseTime(time?: string) {
   }
 }
 
+/** 解析重复结束日期（YYYY-MM-DD），非法值当作未设置 */
+function parseUntil(until?: string) {
+  if (!until) return undefined
+  const [y, m, d] = until.split('-').map(Number)
+  if (!y || !m || !d) return undefined
+  return new Date(y, m - 1, d)
+}
+
 /** 把「某一天」和条目时刻合成精确目标时间 */
 function withTime(date: Date, time?: string) {
   const { hour, minute } = parseTime(time)
@@ -119,8 +154,8 @@ function stillAhead(day: Date, time: string | undefined, now: Date) {
 /** 开始日期换算成公历那一天 */
 function baseDay(item: Countdown) {
   if (item.calendar === 'lunar') {
-    const day = Math.min(item.day, lunarMonthDays(item.year, item.month))
-    return lunarToSolar(item.year, item.month, day)
+    const day = Math.min(item.day, lunarMonthDays(item.year, item.month, item.isLeap))
+    return lunarToSolar(item.year, item.month, day, item.isLeap)
   }
   return clampToMonth(item.year, item.month - 1, item.day)
 }
@@ -145,14 +180,18 @@ function* occurrences(item: Countdown, base: Date, from: Date): Generator<Date> 
       const picked = item.repeat.weekdays?.length
         ? [...new Set(item.repeat.weekdays)].sort((a, b) => a - b)
         : [base.getDay()]
-      const blockStart = addDays(base, -base.getDay())
-      const offset = daysBetween(blockStart, from)
-      const start = offset > 0 ? Math.floor(offset / (n * 7)) : 0
+      const step = n * 7
+      // 每个选中的星期各自独立锚定「开始日期起最近的那一天」，再各自按 n 周循环。
+      // 这样「每 2 周的周一」从周四开始时，最近的那个周一（几天后）就是第一次，
+      // 不会因为它落在开始日期所在周之前而被整体推迟一个周期。
+      const anchors = picked.map((weekday) => addDays(base, (weekday - base.getDay() + 7) % 7))
+      const earliestOffset = Math.min(...anchors.map((anchor) => daysBetween(anchor, from)))
+      const start = earliestOffset > 0 ? Math.floor(earliestOffset / step) : 0
       for (let k = start; k < start + 400; k++) {
-        for (const weekday of picked) {
-          const candidate = addDays(blockStart, k * n * 7 + weekday)
-          if (daysBetween(base, candidate) >= 0) yield candidate
-        }
+        const candidates = anchors
+          .map((anchor) => addDays(anchor, k * step))
+          .sort((a, b) => a.getTime() - b.getTime())
+        for (const candidate of candidates) yield candidate
       }
       return
     }
@@ -167,7 +206,10 @@ function* occurrences(item: Countdown, base: Date, from: Date): Generator<Date> 
           const year = Math.floor(index / 12)
           const month = (index % 12) + 1
           if (year > MAX_LUNAR_YEAR) return
-          yield lunarToSolar(year, month, Math.min(item.day, lunarMonthDays(year, month)))
+          // 闰月不是每个周期的固定月份，按月重复只在锚点本身（k=0）保留闰月，
+          // 之后的周期都落在对应的平月上
+          const isLeap = index === baseIndex && Boolean(item.isLeap)
+          yield lunarToSolar(year, month, Math.min(item.day, lunarMonthDays(year, month, isLeap)), isLeap)
         }
         return
       }
@@ -187,7 +229,11 @@ function* occurrences(item: Countdown, base: Date, from: Date): Generator<Date> 
         for (let k = start; k < start + 200; k++) {
           const year = item.year + k * n
           if (year > MAX_LUNAR_YEAR) return
-          yield lunarToSolar(year, item.month, Math.min(item.day, lunarMonthDays(year, item.month)))
+          // 闰月不是每年都有：只有当目标年这个月恰好也是闰月时才用闰月，
+          // 否则退回对应的平月（与大多数农历应用的处理方式一致）
+          const isLeap = Boolean(item.isLeap) && lunarLeapMonth(year) === item.month
+          const day = Math.min(item.day, lunarMonthDays(year, item.month, isLeap))
+          yield lunarToSolar(year, item.month, day, isLeap)
         }
         return
       }
@@ -210,8 +256,10 @@ export function resolveCountdown(item: Countdown, now = new Date()): ResolvedCou
   let recurred = false
 
   if (item.repeat.freq !== 'none') {
+    const until = parseUntil(item.repeat.until)
     let last = target
     for (const day of occurrences(item, base, from)) {
+      if (until && day.getTime() > until.getTime()) break
       last = withTime(day, item.time)
       if (stillAhead(day, item.time, now)) break
     }
@@ -233,35 +281,44 @@ export function resolveCountdown(item: Countdown, now = new Date()): ResolvedCou
 
 /** 重复规则的中文描述，例如「每 2 周 · 周三」「每年 七月初七」 */
 export function describeRepeat(item: Countdown) {
-  const { freq, interval } = item.repeat
+  const { freq, interval, until } = item.repeat
   const n = Math.min(99, Math.max(1, Math.floor(interval || 1)))
   const lunar = item.calendar === 'lunar'
   const dayName = lunar ? toChineseDayName(item.day) : `${item.day} 日`
-  const monthName = lunar ? `${LUNAR_MONTH_LABELS[item.month - 1]}月` : `${item.month} 月`
+  const monthName = lunar
+    ? `${item.isLeap ? '闰' : ''}${LUNAR_MONTH_LABELS[item.month - 1]}月`
+    : `${item.month} 月`
 
-  switch (freq) {
-    case 'day':
-      return n === 1 ? '每天' : `每 ${n} 天`
-    case 'week': {
-      const picked = item.repeat.weekdays?.length
-        ? [...new Set(item.repeat.weekdays)].sort((a, b) => a - b)
-        : [baseDay(item).getDay()]
-      const names = picked.map((w) => WEEKDAY_NAMES[w]).join('、')
-      return n === 1 ? `每${names}` : `每 ${n} 周 · ${names}`
+  if (freq === 'none') return '不重复'
+
+  const base = (() => {
+    switch (freq) {
+      case 'day':
+        return n === 1 ? '每天' : `每 ${n} 天`
+      case 'week': {
+        const picked = item.repeat.weekdays?.length
+          ? [...new Set(item.repeat.weekdays)].sort((a, b) => a - b)
+          : [baseDay(item).getDay()]
+        const names = picked.map((w) => WEEKDAY_NAMES[w]).join('、')
+        return n === 1 ? `每${names}` : `每 ${n} 周 · ${names}`
+      }
+      case 'month':
+        return n === 1 ? `每月 ${dayName}` : `每 ${n} 个月 · ${dayName}`
+      case 'year':
+        return n === 1 ? `每年 ${monthName}${dayName}` : `每 ${n} 年 · ${monthName}${dayName}`
+      default:
+        return '不重复'
     }
-    case 'month':
-      return n === 1 ? `每月 ${dayName}` : `每 ${n} 个月 · ${dayName}`
-    case 'year':
-      return n === 1 ? `每年 ${monthName}${dayName}` : `每 ${n} 年 · ${monthName}${dayName}`
-    default:
-      return '不重复'
-  }
+  })()
+
+  return until ? `${base} · 至 ${until}` : base
 }
 
 /** 开始日期的描述，例如「农历 2026 年 冬月初七」 */
 export function describeStart(item: Countdown) {
   if (item.calendar === 'lunar') {
-    return `农历 ${item.year} 年 ${LUNAR_MONTH_LABELS[item.month - 1]}月${toChineseDayName(item.day)}`
+    const monthLabel = `${item.isLeap ? '闰' : ''}${LUNAR_MONTH_LABELS[item.month - 1]}月`
+    return `农历 ${item.year} 年 ${monthLabel}${toChineseDayName(item.day)}`
   }
   const m = String(item.month).padStart(2, '0')
   const d = String(item.day).padStart(2, '0')
@@ -282,8 +339,8 @@ export function describeSource(item: Countdown) {
 
 export type CountdownUnit = 'day' | 'compound' | 'hour' | 'minute' | 'second' | 'week' | 'month'
 
-/** 列表排序：正序（近的在前）/ 倒序（远的在前） */
-export type SortOrder = 'asc' | 'desc'
+/** 列表排序：正序（近的在前）/ 倒序（远的在前）/ 自定义（手动排列的顺序） */
+export type SortOrder = 'asc' | 'desc' | 'custom'
 
 export type CountdownSettings = {
   /** 默认显示单位，条目未单独设置时使用 */
@@ -307,7 +364,7 @@ export const DEFAULT_SETTINGS: CountdownSettings = {
 export function resolveSettings(item: Countdown, settings: CountdownSettings): CountdownSettings {
   return {
     unit: item.unit ?? settings.unit,
-    precise: settings.precise,
+    precise: item.precise ?? settings.precise,
     inclusive: item.inclusive ?? settings.inclusive,
     sortOrder: settings.sortOrder,
   }
@@ -445,16 +502,16 @@ export function formatCountdown(
 }
 
 /**
- * 排序：置顶恒在最前，其余未到的排在已过去的之前；
- * 正序按「离现在最近」升序，倒序整体反过来。
+ * 排序：自定义顺序直接保持传入的原始顺序（由用户在「排序」界面手动排列）；
+ * 否则未到的排在已过去的之前，正序按「离现在最近」升序，倒序整体反过来。
  */
 export function sortResolved(list: ResolvedCountdown[], order: SortOrder = 'asc') {
+  if (order === 'custom') return list
   const byDistance = [...list].sort((a, b) => {
     const aFuture = a.days >= 0
     const bFuture = b.days >= 0
     if (aFuture !== bFuture) return aFuture ? -1 : 1
     return aFuture ? a.days - b.days : b.days - a.days
   })
-  const ordered = order === 'desc' ? byDistance.reverse() : byDistance
-  return ordered.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)))
+  return order === 'desc' ? byDistance.reverse() : byDistance
 }
