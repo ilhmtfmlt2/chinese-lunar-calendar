@@ -283,7 +283,7 @@ export function dateKey(date: Date) {
   return `${date.getFullYear()}-${m}-${d}`
 }
 
-/** 自然日���值（target - from），忽略时分秒 */
+/** 自然日差值（target - from），忽略时分秒 */
 export function daysBetween(from: Date, target: Date) {
   const a = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime()
   const b = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime()
